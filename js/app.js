@@ -775,9 +775,22 @@
       if (!I.dg) { const sp = findSplatter(src); if (sp) { let best = null; Object.keys(I.boxes).forEach(id => { const b = I.boxes[id]; const dx = sp.x - (b.x + b.w / 2), dy = (sp.y - (b.y + b.h + 0.07)) * (src.height / src.width); const dist = Math.hypot(dx, dy); if (!best || dist < best.dist) best = { id, dist }; }); if (best && best.dist < 0.12) { I.dg = best.id; I.guess = true; } } }
     }
     I.src = src; HUD.info = I; HUD.fresh = true; hudBuild();
-    if (I.screen) HUD.cache[I.screen] = { cv: src, info: I };
+    if (I.screen) HUD.cache[I.screen] = { cv: src, info: I }; if (I.screen) persistCap('stage:' + I.screen, src, I);
   }
   function itemT2(id) { const en = ITEM_EN[id] || id; const p = PROV[en]; return id === 'hand' ? '맨손' : koOf(en, p ? p.ko : ITEM_KO[id]); }
+  // ---- 캡처를 브라우저의 디스크 저장소(IndexedDB)에 보관: 새로고침해도 이번 원정의 캡처가 남는다 ----
+  const DB = { p: null,
+    open() { return this.p || (this.p = new Promise((ok, no) => { const r = indexedDB.open('dd-overlay', 1); r.onupgradeneeded = () => r.result.createObjectStore('caps', { keyPath: 'key' }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); })); },
+    async tx(mode, fn) { try { const db = await this.open(); return await new Promise((ok, no) => { const t = db.transaction('caps', mode); const rq = fn(t.objectStore('caps')); t.oncomplete = () => ok(rq && rq.result); t.onerror = () => no(t.error); }); } catch (e) { return null; } },
+    put(v) { return this.tx('readwrite', st => st.put(v)); }, del(k) { return this.tx('readwrite', st => st.delete(k)); }, clear() { return this.tx('readwrite', st => st.clear()); }, all() { return this.tx('readonly', st => st.getAll()); } };
+  function persistCap(key, cv, info, thumb) { try { cv.toBlob(blob => { if (!blob) return; const rest = Object.assign({}, info); ['src', 'calls', 'top', 'bottom', 'say'].forEach(k => delete rest[k]); DB.put({ key, blob, info: rest, thumb: thumb || null, t: Date.now() }); }, 'image/jpeg', 0.9); } catch (e) { /* 저장 실패는 무시 (메모리에는 남아 있음) */ } }
+  async function restoreCaps() {
+    const rows = (await DB.all()) || []; if (!rows.length) return; rows.sort((a, b) => a.t - b.t); let last = null;
+    for (const r of rows) { try { const bm = await createImageBitmap(r.blob); const cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height; cv.getContext('2d').drawImage(bm, 0, 0); const info = r.info; info.src = cv;
+      if (r.key.startsWith('stage:')) HUD.cache[r.key.slice(6)] = { cv, info }; else { const h = r.key.slice(5); info.cachedAs = h; HUD.heroCache[h] = { cv, info, thumb: r.thumb }; } last = { cv, info }; } catch (e) { /* 깨진 항목은 건너뜀 */ } }
+    if (last && !OCR.last) { OCR.last = last.cv; HUD.info = last.info; hudBuild(); }
+    if (parseHash().view === 'hud') render(true);
+  }
   // ---- 원정 세션: 화면을 넘길 때마다 쌓이는 맥락 (던전·길이·확인한 영웅·만난 기물) ----
   const STAGES = [['map', '원정 선택'], ['hero', '영웅 확인'], ['provision', '보급'], ['dungeon', '탐험']];
   let session = store.get('dd.session', { heroes: [], curios: [], prov: false });
@@ -806,9 +819,9 @@
     if (I.screen === 'hero') {
       const h = I.hero; if (!h) { I.ask = 'hero'; I.say = '흐음, 뉘신지 알아볼 수가 없군요. 어차피 오래 못 볼 얼굴들이라 그런가… 크흠, 위에서 골라 주시지요.'; I.bottom = heroRoster(); return; }
       if (I.src) {   // 이 캡처를 이 영웅의 것으로 기억한다. 영웅을 고쳐 고르면 앞서 잘못 기억한 것은 지운다
-        if (I.cachedAs && I.cachedAs !== h) { delete HUD.heroCache[I.cachedAs]; session.heroes = session.heroes.filter(x => x !== I.cachedAs); }
+        if (I.cachedAs && I.cachedAs !== h) { DB.del('hero:' + I.cachedAs); delete HUD.heroCache[I.cachedAs]; session.heroes = session.heroes.filter(x => x !== I.cachedAs); }
         if (I.cachedAs !== h || !HUD.heroCache[h]) { let thumb = null; const zp = zone('portrait'); if (zp) { try { const tc = document.createElement('canvas'); tc.width = 88; tc.height = 100; tc.getContext('2d').drawImage(I.src, zp.x * I.src.width, zp.y * I.src.height, zp.w * I.src.width, zp.h * I.src.height, 0, 0, 88, 100); thumb = tc.toDataURL('image/jpeg', 0.85); } catch (e) { /* 무시 */ } }
-          HUD.heroCache[h] = { cv: I.src, info: I, thumb }; I.cachedAs = h; } }
+          HUD.heroCache[h] = { cv: I.src, info: I, thumb }; I.cachedAs = h; persistCap('hero:' + h, I.src, I, thumb); } }
       if (!session.heroes.includes(h)) { session.heroes.push(h); saveSession(); }
       const g = HERO_GUIDE[h], b = g.builds[0];
       I.top = '<div class="row"><h2 class="hudh">' + heroT(h) + '</h2><span class="tag gold">' + esc(g.role) + '</span>' + g.pos.map(p => '<span class="tag">' + p + '열</span>').join('') + '</div><p>' + esc(g.summary) + '</p>';
@@ -1001,7 +1014,7 @@
     else if (d.hdg != null && I) { I.dg = d.hdg; ctx.dg = d.hdg; hudBuild(); }
     else if (d.hlen != null && I) { I.len = +d.hlen; ctx.len = I.len; hudBuild(); }
     else if (d.hhero != null && I) { I.hero = d.hhero; hudBuild(); }
-    else if (d.hrm != null) { e.stopPropagation(); session.heroes = session.heroes.filter(x => x !== d.hrm); delete HUD.heroCache[d.hrm]; saveSession(); if (I && I.hero === d.hrm) { I.hero = null; I.cachedAs = null; I.src = null; } }
+    else if (d.hrm != null) { e.stopPropagation(); session.heroes = session.heroes.filter(x => x !== d.hrm); delete HUD.heroCache[d.hrm]; DB.del('hero:' + d.hrm); saveSession(); if (I && I.hero === d.hrm) { I.hero = null; I.cachedAs = null; I.src = null; } }
     else if (d.hroster != null) { const c = HUD.heroCache[d.hroster];
       if (c) { OCR.last = c.cv; HUD.info = c.info; HUD.info.hero = d.hroster; }
       else HUD.info = { screen: 'hero', hero: d.hroster, dg: null, len: null, det: { lines: [], words: [] } };
@@ -1010,9 +1023,9 @@
     else if (d.hud === 'rescan') { hudRun(); return; }
     else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
     else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
-    else if (d.hud === 'newrun') { if (!confirm('탐험을 마치셨나요? 이번 원정의 캡처와 기록(던전, 영웅, 가방, 만난 기물)을 모두 지우고 다음 원정을 시작합니다.')) return; HUD.heroCache = {}; OCR.last = null; OCR.thumb = null; run.inv = {}; saveRun(); session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
+    else if (d.hud === 'newrun') { if (!confirm('탐험을 마치셨나요? 이번 원정의 캡처와 기록(던전, 영웅, 가방, 만난 기물)을 모두 지우고 다음 원정을 시작합니다.')) return; DB.clear(); HUD.heroCache = {}; OCR.last = null; OCR.thumb = null; run.inv = {}; saveRun(); session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
     else if (d.hud === 'fillbag' && I && I.dg) { const dgd = DG[I.dg]; run.dg = I.dg; run.inv = {}; PROV9.forEach(k => { run.inv[k] = (dgd.provisions[k] || [0, 0, 0])[I.len || 0] || (k === 'Laudanum' ? [0, 1, 2][I.len || 0] : 0); }); saveRun(); session.prov = true; saveSession(); }
-    else if (d.hud === 'clearheroes') { session.heroes = []; HUD.heroCache = {}; saveSession(); }
+    else if (d.hud === 'clearheroes') { Object.keys(HUD.heroCache).forEach(h => DB.del('hero:' + h)); session.heroes = []; HUD.heroCache = {}; saveSession(); }
     else if (d.hud === 'tobuilder') { const sl = partyFromHeroes(session.heroes); bld = { slots: sl.map((h, i) => h ? { hero: h, skills: defaultSkills(h, 4 - i) } : null), active: Math.max(0, sl.indexOf(null)), dg: ctx.dg || '' }; saveBld(); location.hash = '#/builder'; return; }
     else if (d.hud === 'pickm') { if (!OCR.last) { alert('먼저 화면을 캡처하세요.'); return; } HUD.pickM = !HUD.pickM; HUD.edit = false; }
     else if (d.hud === 'mascot') { if (store.get('dd.mascot', null) && confirm('기본 캐릭터로 되돌릴까요? (취소를 누르면 다른 그림을 고릅니다)')) { store.set('dd.mascot', null); render(true); return; }
@@ -1112,4 +1125,5 @@
   document.addEventListener('keydown', e => { if (e.key === '/' && !/INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) { e.preventDefault(); qi.focus(); } });
 
   render(false);
+  restoreCaps();
 })();
