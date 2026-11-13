@@ -3,6 +3,14 @@
   'use strict';
   const WIKI = 'https://darkestdungeon.wiki.gg/images/';
   const BOSSES = [].concat(typeof BOSSES_A !== 'undefined' ? BOSSES_A : [], typeof BOSSES_B !== 'undefined' ? BOSSES_B : []);
+  // 게임에 실제로 나오는 한글 이름으로 바꾼다. 이전 표기는 '다른 번역'으로 남겨 검색과 인식에 계속 쓴다
+  const KN = typeof KO_NAMES !== 'undefined' ? KO_NAMES : {};
+  const setKo = (o, en) => { const k = KN[en || o.en]; if (o && k && k !== o.ko) { o.alt = (o.alt || []).concat(o.ko ? [o.ko] : []); o.ko = k; } };
+  Object.keys(HERO_GUIDE).forEach(h => setKo(HERO_GUIDE[h], h)); DUNGEONS.forEach(d => setKo(d)); PROVISIONS.forEach(x => setKo(x)); BOSSES.forEach(x => setKo(x)); CURIOS.forEach(x => setKo(x)); TRINKETS.forEach(t => { t.ko = KN[t.en] || null; });
+  Object.keys(HERO_DATA).forEach(h => HERO_DATA[h].skills.forEach(x => setKo(x)));
+  if (typeof CAMP !== 'undefined') Object.keys(CAMP).forEach(h => CAMP[h].skills.forEach(x => setKo(x)));
+  if (typeof TOWN !== 'undefined') { TOWN.buildings.forEach(x => setKo(x)); TOWN.quirks.lock.concat(TOWN.quirks.remove).forEach(x => setKo(x)); TOWN.heirlooms.forEach(x => setKo(x)); TOWN.districts.forEach(x => setKo(x)); }
+  if (typeof EVENT_KO !== 'undefined') Object.keys(EVENT_KO).forEach(e => setKo(EVENT_KO[e], e));
   const $ = (s, r) => (r || document).querySelector(s);
   const $$ = (s, r) => Array.from((r || document).querySelectorAll(s));
   const esc = s => String(s == null ? '' : s).replace(/[&<>"']/g, c => ({ '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c]));
@@ -67,7 +75,7 @@
   CURIOS.forEach(c => { if (!seenCurio[c.en]) { seenCurio[c.en] = 1; reg('기물', c.en, c.ko, [], '#/curios/all?q=' + encodeURIComponent(c.en)); } });
   Object.keys(HERO_DATA).forEach(h => HERO_DATA[h].skills.forEach(s => { if (!(h === 'Abomination' && s.form === 'beast' && s.en === 'Transform')) reg('스킬', s.en, s.ko, [], '#/hero/' + encodeURIComponent(h)); }));
   const SEARCH_EXTRA = [];
-  TRINKETS.forEach(t => SEARCH_EXTRA.push({ cat: '장신구', en: t.en, ko: t.fx.join(' / '), alt: [], href: '#/trinkets?q=' + encodeURIComponent(t.en), noko: true }));
+  TRINKETS.forEach(t => SEARCH_EXTRA.push({ cat: '장신구', en: t.en, ko: (t.ko ? t.ko + ' — ' : '') + t.fx.join(' / '), alt: [], href: '#/trinkets?q=' + encodeURIComponent(t.en), noko: true }));
   PARTIES.forEach(p => SEARCH_EXTRA.push({ cat: '파티', en: p.name, ko: p.slots.map(s => heroKo(s.hero)).join(' · '), alt: [], href: '#/parties?id=' + p.id, noko: true }));
   if (typeof EVENT_KO !== 'undefined') Object.keys(EVENT_KO).forEach(e => SEARCH_EXTRA.push({ cat: '마을 이벤트', en: e, ko: EVENT_KO[e].ko, alt: [], href: '#/events?q=' + encodeURIComponent(e) }));
 
@@ -79,7 +87,7 @@
   }
   function trinketLine(en) {
     const t = TRK[en]; if (!t) return '';
-    return '<div class="tk">' + pic(t.img, 0, '') + '<span><b>' + esc(t.en) + '</b><br>' + esc(t.fx.join(' · ')) + '</span></div>';
+    return '<div class="tk">' + pic(t.img, 0, '') + '<span><b>' + T(t.en, t.ko) + '</b><br>' + esc(t.fx.join(' · ')) + '</span></div>';
   }
   function thirdTrinket(hero, have) { return (THIRD_TRINKET[hero] || []).find(t => TRK[t] && !(have || []).includes(t)) || null; }
   function thirdLine(hero, have) { const t = thirdTrinket(hero, have); return t ? '<div class="third" title="장신구 칸이 3개인 모드를 쓸 때의 추가 추천">' + trinketLine(t) + '<span class="tag">3번째 칸</span></div>' : ''; }
@@ -321,12 +329,12 @@
   };
 
   function trinketCard(t) {
-    return '<div class="card trk">' + pic(t.img, 0, '') + '<div><b class="rar-' + (t.rar || 'vc') + '">' + esc(t.en) + '</b><div class="small dim">' + esc(RAR[t.rar] || '특수') + (t.cls ? ' · ' + esc(heroKo(t.cls)) + ' 전용' : '') + (t.area ? ' · ' + esc(t.area) : '') + '</div><div class="small">' + t.fx.map(esc).join('<br>') + '</div></div></div>';
+    return '<div class="card trk">' + pic(t.img, 0, '') + '<div><b class="rar-' + (t.rar || 'vc') + '">' + T(t.en, t.ko) + '</b><div class="small dim">' + esc(RAR[t.rar] || '특수') + (t.cls ? ' · ' + esc(heroKo(t.cls)) + ' 전용' : '') + (t.area ? ' · ' + esc(t.area) : '') + '</div><div class="small">' + t.fx.map(esc).join('<br>') + '</div></div></div>';
   }
   V.trinkets = function (args, q) {
     const kw = (q.q || '').toLowerCase(), cls = q.cls || 'all';
-    const list = TRINKETS.filter(t => (cls === 'all' || (cls === 'common' ? !t.cls : t.cls === cls)) && (!kw || (t.en + ' ' + t.fx.join(' ') + ' ' + heroKo(t.cls || '')).toLowerCase().includes(kw)));
-    let o = '<h1>장신구</h1><p class="lead">장신구 이름은 번역 차이가 커서 영문명과 아이콘으로 표기합니다. 효과로도 검색할 수 있습니다(예: "기절", "속도", "치유").</p>';
+    const list = TRINKETS.filter(t => (cls === 'all' || (cls === 'common' ? !t.cls : t.cls === cls)) && (!kw || (t.en + ' ' + (t.ko || '') + ' ' + t.fx.join(' ') + ' ' + heroKo(t.cls || '')).toLowerCase().includes(kw)));
+    let o = '<h1>장신구</h1><p class="lead">게임에 나오는 한글 이름과 영문명을 함께 표기합니다. 이름이나 효과로 검색할 수 있습니다(예: "두루마리", "기절", "속도").</p>';
     o += '<div class="row"><input class="field" id="trq" placeholder="이름 또는 효과 검색" value="' + esc(q.q || '') + '" style="flex:1;max-width:320px"><select class="field" id="trcls"><option value="all">모든 장신구</option><option value="common"' + (cls === 'common' ? ' selected' : '') + '>공용</option>' + Object.keys(HERO_GUIDE).map(h => '<option value="' + esc(h) + '"' + (cls === h ? ' selected' : '') + '>' + esc(heroKo(h)) + ' 전용</option>').join('') + '</select><span class="small dim">' + list.length + '개</span></div>';
     return o + '<div class="grid g3" style="margin-top:12px">' + list.map(trinketCard).join('') + '</div>';
   };
@@ -510,7 +518,7 @@
     for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]; }
   const countIn = (hay, needle) => { let n = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0) { n++; i += needle.length; } return n; };
   // 키워드 표 (영문 원문 + 이 가이드의 한글 + 다른 번역 후보 + 사용자가 용어 사전에 적은 용어). 실제 캡처로 계속 보강할 부분.
-  const LEN_WORDS = [['short', '짧은', '짧음', '단거리'], ['medium', '중간', '보통'], ['long', '장거리', '긴원정', '긴', '김']];
+  const LEN_WORDS = [['short', '짧음', '짧은', '단거리'], ['medium', '중간', '보통'], ['long', '긺', '장거리', '긴원정', '긴', '김']];
   const SCREEN_WORDS = { provision: ['provision', 'provisions', '보급', '보급품', '물자', '식량및물자'], map: ['embark', 'expedition', 'questlength', '원정', '출정', '출발'] };
   function wordsOf(en, ko, alt) { return [en, ko, overrides[en]].concat(alt || []).filter(Boolean).map(normT).filter(k => k.length >= 2); }
   function matchCurio(lines, all, nl) {
@@ -518,7 +526,7 @@
     const consider = (en, score, how) => { const c = CURIOS.find(x => x.en === en); if (!c) return; if (c.dg === (ctx.dg || run.dg) || c.dg === 'all') score += 0.5; if (!best || score > best.score) best = { en, score, how }; };
     const seen = {};
     CURIOS.forEach(c => { if (seen[c.en]) return; seen[c.en] = 1;
-      [c.ko, overrides[c.en], c.en.replace(/\s*\(.*\)/, '')].filter(Boolean).forEach(name => { const k = normT(name); if (k.length < 2) return;
+      [c.ko, overrides[c.en], c.en.replace(/\s*\(.*\)/, '')].concat(c.alt || []).filter(Boolean).forEach(name => { const k = normT(name); if (k.length < 2) return;
         if (k.length >= 4 && all.includes(k)) consider(c.en, 10 + k.length, '이름 일치');
         else nl.forEach(l => { if (l === k) consider(c.en, 10 + k.length, '이름 일치'); else if (k.length >= 4 && Math.abs(l.length - k.length) <= 2) { const r = 1 - lev(l, k) / Math.max(l.length, k.length); if (r >= 0.75) consider(c.en, r * k.length, '비슷한 이름'); } });
       }); });
@@ -756,7 +764,7 @@
     OCR.lines = lines.filter(l => /[a-z가-힣]{3}/i.test(l)).slice(0, 24); const R = classify(lines);
     let byTitle = null;
     if (!HUD.force) for (const k of Object.keys(TITLE_WORDS)) { const z = (zones[k] || []).find(x => x.role === 'title'); if (!z) continue; const zt = normT((await recognizeCanvas(cropCanvas(src, z))).join(' ')); z._read = zt; if (TITLE_WORDS[k].some(w => fuzzyIn(zt, w, 1))) { byTitle = k; break; } }
-    const lvl = /견습|숙련|챔피언|apprentice|veteran|champion/.test(normT(all));
+    const lvl = /견습|베테랑|숙련|챔피언|apprentice|veteran|champion/.test(normT(all));
     let screen = HUD.force || (byTitle || detectScreen(lines) || (lvl && /목표|goals/.test(normT(all)) ? 'map' : null) || ({ provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind]) || null);
     if (!screen && HUD.pin) screen = HUD.pin;   // 자동 판단이 안 될 때만 마지막으로 직접 고른 화면을 쓴다
     const I = { screen, dg: null, len: readLen(all), curio: R.curio, hero: null, det };
@@ -917,7 +925,7 @@
     'Kleptomaniac': ['도벽광', '절도광', '도벽증'], 'Curious': ['호기심 많음', '호기심쟁이'], 'Compulsive': ['강박증', '충동적', '강박적'], 'Hylomania': ['물질 집착', '물건 집착', '물질광'], 'Dark Temptation': ['어두운 유혹', '암흑의 유혹'], 'Necromania': ['시체 집착', '사체 애호', '시체광'], 'The Yips': ['손 떨림', '입스 증후군'], 'Off Guard': ['무방비', '허를 찔림'], 'Nervous': ['긴장', '불안', '초조함'], 'Fragile': ['연약함', '깨지기 쉬움', '약골'], 'Weak Grip on Life': ['삶에 대한 약한 집착', '약한 삶의 의지', '희미한 생명줄'], 'Claustrophobia': ['폐쇄공포증'] };
   const QUIRKS = typeof TOWN !== 'undefined' && TOWN.quirks ? TOWN.quirks.lock.map(q => Object.assign({ kind: 'lock' }, q)).concat(TOWN.quirks.remove.map(q => Object.assign({ kind: 'remove' }, q))) : [];
   function matchQuirk(text) { const n = normT(text); if (n.length < 2) return null; const al = aliases[n]; if (al && al.startsWith('quirk:')) return al === 'quirk:-' ? { none: true } : (QUIRKS.find(q => q.en === al.slice(6)) || null);
-    return QUIRKS.find(q => [q.en, q.ko, overrides[q.en]].concat(QUIRK_ALT[q.en] || []).filter(Boolean).map(normT).some(w => n === w || (w.length >= 3 && n.includes(w)) || (w.length >= 4 && Math.abs(n.length - w.length) <= 1 && lev(n, w) <= 1))) || null; }
+    return QUIRKS.find(q => [q.en, q.ko, overrides[q.en]].concat(q.alt || [], QUIRK_ALT[q.en] || []).filter(Boolean).map(normT).some(w => n === w || (w.length >= 3 && n.includes(w)) || (w.length >= 4 && Math.abs(n.length - w.length) <= 1 && lev(n, w) <= 1))) || null; }
   // 기벽 목록을 줄 단위로 읽는다. 한 줄에 긍정·부정 기벽이 나란히 있으면 낱말 사이가 넓은 곳에서 나눈다
   async function readQuirkLines(src, z) {
     const cv = cropCanvas(src, z); const w = await ensureWorker(); const { data } = await w.recognize(cv); const out = [];
@@ -971,7 +979,7 @@
     const qb = I.calls.filter(c => c.kind === 'qbox').map(c => { const z = c.cell, q = c.q; const lock = q.kind === 'lock';
       return '<div class="tslot qbox ' + q.kind + '" style="left:' + (z.x * 100 - 0.4).toFixed(2) + '%;top:' + (z.y * 100 - 0.5).toFixed(2) + '%;width:' + (z.w * 100 + 0.8).toFixed(2) + '%;height:' + (z.h * 100 + 1).toFixed(2) + '%"><span class="qtag">' + (lock ? '고정' : '제거') + '</span><span class="ttip"><b>' + esc(koOf(q.en, q.ko)) + ' <small>' + esc(q.en) + '</small></b><i>' + (lock ? '요양원에서 고정할 만한 기벽' : '요양원에서 먼저 지울 기벽') + '</i>' + esc(q.why) + '</span></div>'; }).join('');
     return qb + camp + I.calls.filter(c => c.kind === 'tslot').map(c => { const t = TRK[c.name]; const z = c.cell;
-      return '<div class="tslot' + (c.k === 1 ? ' up' : '') + '" style="left:' + (z.x * 100 + z.w * 4).toFixed(2) + '%;top:' + (z.y * 100).toFixed(2) + '%;width:' + (z.w * 92).toFixed(2) + '%;height:' + (z.h * 100).toFixed(2) + '%">' + pic(t.img, 0, '') + '<span class="tname">' + esc(t.en) + '</span><span class="ttip"><b>' + esc(t.en) + '</b>' + (c.k === 2 ? '<i>3번째 칸 (모드)</i>' : '') + t.fx.map(esc).join('<br>') + '</span></div>'; }).join(''); }
+      return '<div class="tslot' + (c.k === 1 ? ' up' : '') + '" style="left:' + (z.x * 100 + z.w * 4).toFixed(2) + '%;top:' + (z.y * 100).toFixed(2) + '%;width:' + (z.w * 92).toFixed(2) + '%;height:' + (z.h * 100).toFixed(2) + '%">' + pic(t.img, 0, '') + '<span class="tname">' + esc(koOf(t.en, t.ko)) + '</span><span class="ttip"><b>' + esc(koOf(t.en, t.ko)) + (t.ko ? ' <small>' + esc(t.en) + '</small>' : '') + '</b>' + (c.k === 2 ? '<i>3번째 칸 (모드)</i>' : '') + t.fx.map(esc).join('<br>') + '</span></div>'; }).join(''); }
   // WebGL을 쓸 수 없을 때의 대체 표시 (캡처 그림 + HTML 표시)
   function domScene(W, H) {
     const host = $('#hudstage'); host.innerHTML = ''; if (OCR.last) { const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(OCR.last, 0, 0, W, H); host.appendChild(c); }
