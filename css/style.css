@@ -473,3 +473,8 @@ main:has(.runwrap){max-width:1560px}
 .qrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--h-line,var(--line))}
 .qrow>span:first-child{font-weight:700;min-width:120px}
 .qrow select{padding:3px 8px;font-size:13px;max-width:100%}
+
+/* 영웅 고치기: 이동과 구분되는 별도 조작 */
+.fixhero{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:var(--t-xs);color:var(--faint);margin-top:2px}
+.fixhero select{padding:2px 8px;font-size:var(--t-sm)}
+.fixhero.ask{font-size:var(--t-md);color:var(--gold)}
