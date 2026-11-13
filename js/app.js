@@ -744,20 +744,23 @@
     const f = b => ({ x: b.x0 / cv.width, y: b.y0 / cv.height, w: (b.x1 - b.x0) / cv.width, h: (b.y1 - b.y0) / cv.height });
     return { lines: (data.lines || []).map(l => ({ t: l.text.trim(), n: normT(l.text), b: f(l.bbox) })).filter(l => l.n.length >= 2), words: (data.words || []).map(x => ({ t: x.text, n: normT(x.text), b: f(x.bbox) })).filter(x => x.n.length >= 1) };
   }
-  function cropCanvas(src, z) {
+  function cropCanvas(src, z, mode) {
     const sx = z.x * src.width, sy = z.y * src.height, sw = Math.max(4, z.w * src.width), sh = Math.max(4, z.h * src.height);
     const sc = Math.min(6, Math.max(Math.min(3, Math.max(1, 1650 / src.height)), 60 / sh)); const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
-    const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.filter = 'grayscale(1) contrast(1.5)'; cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height); return cv;
+    const cx = cv.getContext('2d', { willReadFrequently: mode === 'max' }); cx.imageSmoothingQuality = 'high';
+    if (mode === 'max') { cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height); try { const im = cx.getImageData(0, 0, cv.width, cv.height), d = im.data; for (let q = 0; q < d.length; q += 4) { const v = Math.min(255, Math.max(d[q], d[q + 1], d[q + 2]) * 1.5); d[q] = d[q + 1] = d[q + 2] = v; } cx.putImageData(im, 0, 0); } catch (e) { /* 그대로 사용 */ } return cv; }
+    cx.filter = 'grayscale(1) contrast(1.5)'; cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height); return cv;
   }
   function findBox(det, keys) {
     const w = det.words.find(x => keys.some(k => x.n === k || (k.length >= 3 && x.n.includes(k)) || (k.length >= 5 && x.n.length >= 4 && Math.abs(x.n.length - k.length) <= 1 && lev(x.n, k) <= 1))); return w ? w.b : null;
   }
   // 영웅 화면의 전투 기술 7칸: 선택된 칸은 색이 있고 선택 안 된 칸은 회색이라, 칸마다 색의 진하기를 잰다
   function readSkillRow(src, z) {
-    const out = []; const cv = document.createElement('canvas'); cv.width = 7 * 16; cv.height = 16; const cx = cv.getContext('2d');
-    cx.drawImage(src, z.x * src.width, z.y * src.height, z.w * src.width, z.h * src.height, 0, 0, cv.width, cv.height); let d; try { d = cx.getImageData(0, 0, cv.width, cv.height).data; } catch (e) { return null; }
-    for (let k = 0; k < 7; k++) { let sum = 0, n = 0; for (let y = 3; y < 13; y++) for (let x = k * 16 + 3; x < k * 16 + 13; x++) { const i = (y * cv.width + x) * 4; sum += Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]); n++; } out.push(sum / n); }
-    return out.map(v => v > 28);
+    const W = src.width, H = src.height, cw = z.w / 7; const out = []; const cv = document.createElement('canvas'); const cx = cv.getContext('2d', { willReadFrequently: true });
+    const y0 = Math.max(0, Math.round((z.y - z.h * 0.16) * H)), y1 = Math.round((z.y + z.h * 0.04) * H) + 1;
+    for (let k = 0; k < 7; k++) { const c = (z.x + cw * (k + 0.5)) * W; const x0 = Math.round(c - cw * W * 0.1), x1 = Math.round(c + cw * W * 0.1) + 1; cv.width = x1 - x0; cv.height = y1 - y0; cx.drawImage(src, x0, y0, x1 - x0, y1 - y0, 0, 0, cv.width, cv.height);
+      let d; try { d = cx.getImageData(0, 0, cv.width, cv.height).data; } catch (e) { return null; } let sum = 0; for (let q = 0; q < d.length; q += 4) sum += Math.max(d[q], d[q + 1], d[q + 2]); out.push(sum / (d.length / 4)); }
+    return out.map(v => v > 48);
   }
   // 지도에서 고른 원정 뒤에 깔리는 붉은 얼룩을 찾는다 (지도 영역 안에서 붉은 화소가 가장 몰린 곳)
   function findSplatter(src) {
@@ -858,10 +861,8 @@
   let session = store.get('dd.session', { heroes: [], curios: [], prov: false });
   const saveSession = () => store.set('dd.session', session);
   function stageDone(s) { return s === 'map' ? !!ctx.dg : s === 'hero' ? session.heroes.length > 0 : s === 'provision' ? session.prov : session.curios.length > 0; }
-  function partyFromHeroes(hs) {   // 확인한 영웅을 권장 자리에 앉혀 본다 (앞자리부터 채움)
-    const slots = [null, null, null, null]; const left = hs.slice(0, 4);
-    [1, 2, 3, 4].forEach(pos => { let k = left.findIndex(h => HERO_GUIDE[h].pos[0] === pos); if (k < 0) k = left.findIndex(h => HERO_GUIDE[h].pos.includes(pos)); if (k >= 0) { slots[4 - pos] = left[k]; left.splice(k, 1); } });
-    left.forEach(h => { const i = slots.indexOf(null); if (i >= 0) slots[i] = h; }); return slots;
+  function partyFromHeroes(hs) {   // 목록 순서 = 게임의 일행 칸 순서 (왼쪽부터 4열 → 1열)
+    const slots = [null, null, null, null]; hs.slice(0, 4).forEach((h, i) => { slots[i] = h; }); return slots;
   }
   function checkHeroes(hs, dg) {   // 편성기의 점검 규칙을 그대로 빌려 쓴다
     const keep = bld; bld = { slots: partyFromHeroes(hs).map((h, i) => h ? { hero: h, skills: defaultSkills(h, 4 - i) } : null), active: 0, dg: dg || '' };
@@ -955,7 +956,7 @@
     return QUIRKS.find(q => [q.en, q.ko, overrides[q.en]].concat(q.alt || [], QUIRK_ALT[q.en] || []).filter(Boolean).map(normT).some(w => n === w || (w.length >= 3 && n.includes(w)) || (w.length >= 4 && Math.abs(n.length - w.length) <= 1 && lev(n, w) <= 1))) || null; }
   // 기벽 목록을 줄 단위로 읽는다. 한 줄에 긍정·부정 기벽이 나란히 있으면 낱말 사이가 넓은 곳에서 나눈다
   async function readQuirkLines(src, z, lang) {
-    const cv = cropCanvas(src, z); const data = lang ? await recogWith(cv, lang, 1) : (await (await ensureWorker()).recognize(cv)).data; const out = [];
+    const cv = cropCanvas(src, z, 'max'); const data = lang ? await recogWith(cv, lang, 1) : (await (await ensureWorker()).recognize(cv)).data; const out = [];
     (data.lines || []).forEach(l => { const ws = (l.words || []).filter(x => normT(x.text).length); if (!ws.length) return; const lh = l.bbox.y1 - l.bbox.y0; let seg = [ws[0]];
       const flush = () => { let t = seg.map(x => x.text).join(' ').replace(/(\s+[A-Za-z0-9*×xX>\]\[|\\/~.,'"-]{1,2})+\s*$/, '').trim(); if (!/[가-힣]{2}/.test(t) && !/[A-Za-z]{4}/.test(t)) return; if (normT(t).length >= 2 && /[가-힣a-z]{2}/i.test(t)) { const x0 = seg[0].bbox.x0, x1 = seg[seg.length - 1].bbox.x1, y0 = Math.min.apply(null, seg.map(x => x.bbox.y0)), y1 = Math.max.apply(null, seg.map(x => x.bbox.y1)); out.push({ t, b: { x: z.x + z.w * x0 / cv.width, y: z.y + z.h * y0 / cv.height, w: z.w * (x1 - x0) / cv.width, h: z.h * (y1 - y0) / cv.height } }); } };
       for (let i = 1; i < ws.length; i++) { if (ws[i].bbox.x0 - ws[i - 1].bbox.x1 > lh * 1.6) { flush(); seg = []; } seg.push(ws[i]); } flush(); });
@@ -969,8 +970,9 @@
   function heroRoster() {   // 이번 원정에서 확인한 영웅: 앞의 4명은 일행으로 점검, 나머지는 옆에 후보로 둔다. 누르면 그 영웅을 찍어 둔 캡처가 나온다
     const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
     const party = hs.slice(0, 4), extra = hs.slice(4); const { A, slots } = checkHeroes(party, ctx.dg); const cur = HUD.info && HUD.info.hero;
-    const tile = (h, label) => { const c = HUD.heroCache[h]; return '<div class="rs' + (h === cur ? ' on' : '') + (c ? ' has' : '') + '" data-hroster="' + esc(h) + '" title="' + (c ? '찍어 둔 캡처 보기' : '캡처 없음 — 추천 정보만 보기') + '"><button class="rx" data-hrm="' + esc(h) + '" title="목록에서 빼기">✕</button><span class="port">' + (c && c.thumb ? '<img src="' + c.thumb + '" alt="">' : pic(HERO_DATA[h].img, 120, '')) + '</span><b>' + esc(heroKo(h)) + '</b><small>' + label + '</small></div>'; };
+    const tile = (h, label) => { const c = HUD.heroCache[h]; return '<div class="rs' + (h === cur ? ' on' : '') + (c ? ' has' : '') + '" data-hroster="' + esc(h) + '" title="' + (c ? '찍어 둔 캡처 보기' : '캡처 없음 — 추천 정보만 보기') + '"><button class="rx" data-hrm="' + esc(h) + '" title="목록에서 빼기">✕</button><span class="rmv"><button data-hmv="' + esc(h) + ':-1" title="왼쪽(뒤 열)으로">◀</button><button data-hmv="' + esc(h) + ':1" title="오른쪽(앞 열)으로">▶</button></span><span class="port">' + (c && c.thumb ? '<img src="' + c.thumb + '" alt="">' : pic(HERO_DATA[h].img, 120, '')) + '</span><b>' + esc(heroKo(h)) + '</b><small>' + label + '</small></div>'; };
     let o = '<div class="card roster"><div class="row"><h3>이번 원정 영웅 (' + hs.length + '명)</h3><button class="chip sm" data-hud="tobuilder">편성기에서 다듬기</button><button class="chip sm" data-hud="clearheroes">비우기</button></div><div class="rline">' + slots.map((h, i) => h ? tile(h, (4 - i) + '열') : '<div class="rs empty"><span class="port"></span><b class="dim">?</b><small>' + (4 - i) + '열</small></div>').join('') + (extra.length ? '<span class="rsep"></span>' + extra.map(h => tile(h, '후보')).join('') : '') + '</div>';
+    o += '<p class="small dim">게임의 일행 칸과 같은 순서입니다(왼쪽이 4열). 순서가 다르면 영웅 칸에 마우스를 올려 ◀ ▶로 옮기세요.</p>';
     if (party.length >= 2) o += A.warn.concat(party.length >= 4 ? A.notes : []).slice(0, 4).map(x => '<div class="chk ' + (A.warn.includes(x) ? 'bad' : 'mid') + '">' + (A.warn.includes(x) ? '✕ ' : '△ ') + esc(x) + '</div>').join('') + (party.length >= 4 && !A.warn.length ? '<div class="chk ok">✓ 큰 문제는 보이지 않습니다.</div>' : '');
     return o + '</div>';
   }
@@ -1128,7 +1130,7 @@
   document.addEventListener('pointermove', e => { const s = e.target.closest && e.target.closest('#hudscene'); const d3 = $('#hud3d'); if (!d3 || HUD.edit || HUD.pickM || (HUD.zoom && HUD.zoom.s > 1)) { if (d3 && (HUD.pickM || (HUD.zoom && HUD.zoom.s > 1))) { d3.style.transform = 'none'; HUD.par = { x: 0, y: 0 }; } return; } if (!s) { d3.style.transform = ''; HUD.par = { x: 0, y: 0 }; return; }
     const b = d3.getBoundingClientRect(); const x = (e.clientX - b.left) / b.width - 0.5, y = (e.clientY - b.top) / b.height - 0.5; HUD.par = { x, y }; d3.classList.remove('enter'); d3.style.transform = 'rotateX(' + (-y * 9).toFixed(2) + 'deg) rotateY(' + (x * 12).toFixed(2) + 'deg)'; });
   document.addEventListener('click', e => {
-    const t = e.target.closest('[data-hrm],[data-hroster],[data-hscreen],[data-hud],[data-hdg],[data-hlen],[data-hhero],[data-hcurio]'); if (!t) return; const d = t.dataset; const I = HUD.info;
+    const t = e.target.closest('[data-hmv],[data-hrm],[data-hroster],[data-hscreen],[data-hud],[data-hdg],[data-hlen],[data-hhero],[data-hcurio]'); if (!t) return; const d = t.dataset; const I = HUD.info;
     const scr = (I && I.screen) || (HUD.force || 'provision');
     if (d.hscreen != null) { HUD.sel = null; const c = HUD.cache[d.hscreen];
       if (c) { OCR.last = c.cv; HUD.info = c.info; HUD.force = null; HUD.fresh = true; hudBuild(); }   // 이전에 찍어 둔 그 단계의 캡처와 분석 결과를 그대로 보여 준다 (다시 읽지 않음)
@@ -1136,6 +1138,7 @@
     else if (d.hdg != null && I) { I.dg = d.hdg; ctx.dg = d.hdg; hudBuild(); }
     else if (d.hlen != null && I) { I.len = +d.hlen; ctx.len = I.len; hudBuild(); }
     else if (d.hhero != null && I) { I.hero = d.hhero; hudBuild(); }
+    else if (d.hmv != null) { e.stopPropagation(); const k = d.hmv.lastIndexOf(':'); const h = d.hmv.slice(0, k), dir = +d.hmv.slice(k + 1); const i = session.heroes.indexOf(h), j = i + dir; if (i >= 0 && j >= 0 && j < session.heroes.length) { session.heroes[i] = session.heroes[j]; session.heroes[j] = h; saveSession(); } }
     else if (d.hrm != null) { e.stopPropagation(); session.heroes = session.heroes.filter(x => x !== d.hrm); delete HUD.heroCache[d.hrm]; DB.del('hero:' + d.hrm); saveSession(); if (I && I.hero === d.hrm) { I.hero = null; I.cachedAs = null; I.src = null; } }
     else if (d.hroster != null) { showHero(d.hroster); return; }
     else if (d.hcurio != null && I) { I.curio = d.hcurio; hudBuild(); }

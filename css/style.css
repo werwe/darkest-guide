@@ -486,3 +486,8 @@ main:has(.runwrap){max-width:1560px}
 /* 캡처도 대기 화면도 없을 때의 빈 판 */
 #hudstage:empty{min-height:120px}
 .hud3d{background:radial-gradient(ellipse at 50% 60%,#2a1512,#0b0807 70%)}
+
+.rmv{position:absolute;left:2px;top:2px;display:flex;gap:1px;opacity:0}
+.rs:hover .rmv{opacity:1}
+.rmv button{width:17px;height:18px;border:0;border-radius:4px;background:rgba(0,0,0,.6);color:var(--dim);font-size:9px;line-height:1;cursor:pointer;padding:0}
+.rmv button:hover{color:var(--gold)}
