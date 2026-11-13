@@ -686,7 +686,7 @@
   const PROV9 = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom', 'Laudanum'];
   const DG_SHORT = { ruins: '중독 ○ · 출혈 ✕', weald: '출혈 ○ · 중독 ✕', warrens: '출혈 ○ · 중독 ✕', cove: '중독 ○ · 출혈 ✕', courtyard: '출혈 ○ · 중독 ✕', farmstead: '광역 · 지속력', darkest: '스트레스 · 이형' };
   // 안내 캐릭터의 던전별 한마디 (공손한 집사 말투로 직접 작성)
-  const DG_BUTLER = { ruins: '해골들에게는 출혈이 듣지 않으니 중독을 쓰시고, 성수와 열쇠를 넉넉히 챙기시지요.', weald: '그곳 것들은 독에 강하니 출혈로 다스리시고, 삽과 붕대, 해독제를 잊지 마십시오.', warrens: '돼지 무리는 출혈에 약합니다. 병을 옮기니 약초와 붕대를 챙기시지요.', cove: '비늘 달린 것들은 출혈이 잘 듣지 않으니 중독을 쓰시고, 삽과 약초를 넉넉히 가져가십시오.', courtyard: '흡혈귀들은 출혈에 약합니다. 저들의 칼날도 깊으니 붕대를 한가득 챙기시지요.', farmstead: '끝없이 몰려올 터이니 오래 버틸 채비를 하십시오. 횃불은 필요치 않습니다.', darkest: '돌아오지 못할 수도 있는 길입니다. 마음을 달랠 수단을 둘 이상 갖추시지요.' };
+  const DG_BUTLER = { ruins: '해골들은 피가 없으니 출혈은 헛수고지요. 중독을 쓰시고 성수와 열쇠를 챙기십시오. 지난번처럼 빈손으로 가시진 않겠지요?', weald: '그곳 것들은 독을 밥처럼 먹으니 출혈로 다스리시지요. 삽과 붕대, 해독제… 잊으시면 영웅들이 대신 값을 치를 겁니다, 히히.', warrens: '돼지 놈들은 피를 잘 흘립니다. 병도 잘 옮기고요. 약초와 붕대를 챙기시지요. 요양원 주인이 주인님을 참 좋아합디다.', cove: '비늘 덮인 것들은 출혈이 잘 안 듣습니다. 중독을 쓰시고 삽과 약초를 넉넉히. 젖은 양말은 덤이옵니다.', courtyard: '흡혈귀들은 출혈에 약합니다만, 저쪽 칼날이 더 깊지요. 붕대를 한가득 챙기십시오. 물리시거든… 가까이 오지는 마시고요, 히히.', farmstead: '끝도 없이 몰려올 터이니 오래 버틸 채비나 하시지요. 횃불은 필요 없습니다. 어차피 볼 것도 없으니까요.', darkest: '그곳이라… 히히히. 마음 달랠 수단을 둘 이상 갖추시지요. 묘지기에게는 제가 미리 일러 두겠습니다.' };
   function rolesOf(screen) {
     if (screen === 'map') return [['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
     if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
@@ -750,22 +750,22 @@
   function hudBuild() {
     const I = HUD.info; if (!I) return; I.calls = []; I.ask = false; I.top = ''; I.bottom = ''; const zs = zones[I.screen] || []; const zone = role => zs.find(z => z.role === role);
     const LEN = ['짧은', '중간', '긴'];
-    if (!I.screen) { I.say = '송구합니다, 주인님. 어떤 화면인지 알아보지 못했습니다. 위에서 화면 종류를 골라 주시겠습니까.'; return; }
+    if (!I.screen) { I.say = '어이쿠, 이 늙은이 눈이 침침해서 말입니다, 히히… 무슨 화면인지 통 모르겠습니다. 주인님께서 친히 위에서 골라 주시지요.'; return; }
     if (I.screen === 'hero') {
-      const h = I.hero; if (!h) { I.ask = 'hero'; I.say = '송구합니다, 주인님. 어느 분인지 읽지 못했습니다. 위에서 골라 주십시오.'; return; }
+      const h = I.hero; if (!h) { I.ask = 'hero'; I.say = '흐음, 뉘신지 알아볼 수가 없군요. 어차피 오래 못 볼 얼굴들이라 그런가… 크흠, 위에서 골라 주시지요.'; return; }
       const g = HERO_GUIDE[h], b = g.builds[0];
       I.top = '<div class="row"><h2 class="hudh">' + heroT(h) + '</h2><span class="tag gold">' + esc(g.role) + '</span>' + g.pos.map(p => '<span class="tag">' + p + '열</span>').join('') + '</div><p>' + esc(g.summary) + '</p>';
       I.bottom = '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div></div>';
       I.calls.push({ x: 0.5, y: 0.3, cls: 'card ok', html: '<b>추천 스킬</b><br>' + b.skills.map(k => esc(koOf(k, (SKILL[h + '|' + k] || {}).ko))).join(' · ') });
-      I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세우시는 것이 좋겠습니다. 권해 드리는 기술과 장신구는 아래에 적어 두었습니다.'; return;
+      I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히. 쓸 만한 기술과 장신구는 아래에 적어 두었습니다.'; return;
     }
     if (I.screen === 'dungeon') {
       const c = I.curio && CURIOS.find(x => x.en === I.curio);
-      if (!c) { I.say = '기물의 이름을 읽지 못했습니다, 주인님. 마우스를 올려 이름이 보이게 하신 뒤 다시 불러 주시거나, 아래에서 직접 골라 주십시오.'; I.bottom = '<p class="dim">아래에서 직접 고를 수도 있습니다.</p><div class="cgrid">' + CURIOS.filter(x => x.dg === (ctx.dg || run.dg) || x.dg === 'all').map(x => '<button class="ctile" data-hcurio="' + esc(x.en) + '"><span class="cimg">' + pic(x.img, 160, '') + '</span><span class="cname">' + esc(koOf(x.en, x.ko)) + '</span></button>').join('') + '</div>'; return; }
+      if (!c) { I.say = '이름이 보이질 않는군요, 주인님. 마우스를 올려 이름을 띄우신 뒤 다시 부르시든가… 귀찮으시면 아래에서 직접 고르시지요, 히히.'; I.bottom = '<p class="dim">아래에서 직접 고를 수도 있습니다.</p><div class="cgrid">' + CURIOS.filter(x => x.dg === (ctx.dg || run.dg) || x.dg === 'all').map(x => '<button class="ctile" data-hcurio="' + esc(x.en) + '"><span class="cimg">' + pic(x.img, 160, '') + '</span><span class="cname">' + esc(koOf(x.en, x.ko)) + '</span></button>').join('') + '</div>'; return; }
       const v = verdict(c); const act = v.item ? itemT2(v.item) + ' 사용' : v.text; const b = zone('info') || zone('curio') || findBox(I.det, wordsOf(c.en.replace(/\s*\(.*\)/, ''), c.ko));
       I.calls.push({ x: b ? b.x : 0.4, y: b ? b.y + (b.h || 0) + 0.015 : 0.3, cls: 'card ' + v.cls, html: '<b>' + esc(koOf(c.en, c.ko)) + '</b><br>' + esc(act) });
       I.top = '<div class="row"><h2 class="hudh">' + T(c.en, c.ko) + '</h2><span class="verdict ' + v.cls + '">' + esc(act) + '</span></div>'; I.bottom = curioCard(c);
-      I.say = koOf(c.en, c.ko) + '이옵니다, 주인님. ' + (v.item ? itemT2(v.item) + '을(를) 쓰시지요.' + (v.handBad ? ' 맨손으로 건드리시면 화를 입기 쉽습니다.' : '') : v.cls === 'no' ? '손대지 않으시는 편이 좋겠습니다.' : v.cls === 'gamble' ? '운에 맡기는 물건입니다. 여유가 있으실 때만 건드리시지요.' : '맨손으로 살펴보셔도 무방합니다.');
+      I.say = koOf(c.en, c.ko) + '이옵니다, 주인님. ' + (v.item ? itemT2(v.item) + '을(를) 쓰시지요.' + (v.handBad ? ' 맨손으로 덥석 만지셨다간… 뭐, 저야 구경거리가 생겨 좋습니다만. 히히.' : ' 설마 그걸 안 챙겨 오신 건 아니겠지요?') : v.cls === 'no' ? '손대지 마시지요. 물론 주인님께서 제 말을 들으실 분은 아니지만… 히히히.' : v.cls === 'gamble' ? '운에 맡기는 물건이옵니다. 주인님의 운이야 제가 익히 알지요… 크흠, 알아서 하십시오.' : '맨손으로 뒤지셔도 됩니다. 이번만큼은 손가락이 무사할 겁니다, 아마도요.');
       if (c.dg !== 'all') { ctx.dg = c.dg; store.set('dd.ctx', ctx); } return;
     }
     if (I.screen === 'map') {   // 던전 이름표마다 한 줄 요약을 붙인다 (누르면 그 던전 선택)
@@ -773,19 +773,19 @@
         I.calls.push({ x: b.x, y: b.y + b.h + 0.004, cls: 'tagc' + (I.dg === d.id ? ' on' : ''), attr: 'data-hdg="' + d.id + '"', html: '<b>' + esc(koOf(d.en, d.ko)) + '</b> ' + DG_SHORT[d.id] }); });
     }
     const dg = I.dg || (I.screen === 'provision' ? ctx.dg : null); const len = I.len != null ? I.len : (ctx.len != null ? ctx.len : 0);
-    if (!dg || !DG[dg]) { I.ask = 'dg'; I.say = I.screen === 'map' ? '주인님, 지도에서 어느 곳을 고르셨는지는 글자로 알 수가 없습니다. 이름표나 위의 단추를 눌러 일러 주십시오.' : '어느 곳으로 떠나시는지 일러 주시겠습니까, 주인님.'; I.top = '<p class="dim">던전을 고르면 여기에 요약이 나옵니다.</p>'; return; }
+    if (!dg || !DG[dg]) { I.ask = 'dg'; I.say = I.screen === 'map' ? '지도에서 어디를 찍으셨는지 이 늙은이가 무슨 수로 압니까, 히히. 이름표나 위의 단추를 눌러 일러 주시지요.' : '그래서 이번엔 어디로 영웅들을 보내… 아니, 떠나시렵니까, 주인님?'; I.top = '<p class="dim">던전을 고르면 여기에 요약이 나옵니다.</p>'; return; }
     const d = DG[dg]; ctx = { dg, len }; store.set('dd.ctx', ctx); I.dg = dg; I.len = len; bld.dg = dg;
     const tags = '<div class="chips">' + d.dmg.good.map(x => '<span class="tag good">' + esc(x) + '</span>').join('') + d.dmg.bad.map(x => '<span class="tag bad">✕ ' + esc(x) + '</span>').join('') + '</div>';
     if (I.screen === 'provision') {
       PROV9.forEach(k => { const n = (d.provisions[k] || [k === 'Laudanum' ? (len ? 1 : 0) : 0, k === 'Laudanum' ? 1 : 0, k === 'Laudanum' ? 2 : 0])[len]; const z = zone('item:' + k); if (z) I.calls.push({ x: z.x + z.w / 2, y: z.y, cls: 'badge center ' + (n ? 'use' : 'off'), html: n ? '×' + n : '–' }); });
       I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + ' · ' + LEN[len] + ' 원정 보급품</h2></div><div class="provrow">' + PROV9.map(k => { const n = (d.provisions[k] || [0, 0, 0])[len] || (k === 'Laudanum' ? [0, 1, 2][len] : 0); const p = PROV[k]; return '<span class="pv' + (n ? '' : ' zero') + '">' + pic(p.img, 0, 'ico') + '<b>' + (n ? '×' + n : '–') + '</b><small>' + esc(koOf(p.en, p.ko)) + '</small></span>'; }).join('') + '</div>';
       I.bottom = '<div class="two"><div class="card"><h3>챙길 이유</h3>' + ul(d.tips) + '</div><div class="card"><h3>먼저 잡을 적</h3>' + ul(d.threats) + '</div></div>';
-      I.say = koOf(d.en, d.ko) + ', ' + LEN[len] + ' 원정이시군요. 칸마다 권해 드리는 수량을 적어 두었습니다. ' + (DG_BUTLER[dg] || ''); return;
+      I.say = koOf(d.en, d.ko) + ', ' + LEN[len] + ' 원정이시라… 용감도 하셔라, 히히. 칸마다 수량을 적어 두었으니 금화 아끼지 마시지요. ' + (DG_BUTLER[dg] || ''); return;
     }
     const party = PARTIES.find(p => p.id === d.parties[0]);
     I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + (I.len != null ? ' · ' + LEN[len] + ' 원정' : '') + '</h2></div>' + tags + '<div class="small dim">추천 영웅</div><div class="chips">' + heroChips(d.heroes.good, 'good') + '</div>';
     I.bottom = (party ? partyCard(party, false) : '') + '<p class="small"><a href="#/parties?tag=' + dg + '">→ 다른 추천 파티</a> · <a href="#/plan/' + dg + '/' + len + '">→ 원정 준비</a></p>';
-    I.say = koOf(d.en, d.ko) + '(으)로 가시는군요, 주인님. ' + (DG_BUTLER[dg] || '') + ' 권해 드리는 일행을 아래에 펼쳐 두었습니다.';
+    I.say = koOf(d.en, d.ko) + '(으)로 가시겠다고요? 히히… 훌륭한 선택이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 데려갈 일행은 아래에 펼쳐 두었습니다. 몇이나 돌아올지 내기라도 하시렵니까?';
   }
 
   V.hud = function () {
@@ -796,7 +796,7 @@
     if (HUD.edit) o += '<div class="hudbar"><b>' + (SCREENS.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
     o += '<div class="hudpanel top">' + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처가 없습니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결해 인식하거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>')) + '</div>';
     o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls">' + (!HUD.edit && I ? I.calls.map((c, i) => '<div class="call ' + c.cls + '" ' + (c.attr || '') + ' style="left:' + (c.x * 100).toFixed(2) + '%;top:' + (c.y * 100).toFixed(2) + '%;animation-delay:' + (i * 40) + 'ms">' + c.html + '</div>').join('') : '') + '</div></div></div>';
-    o += '<div class="hudpanel bottom"><div class="mascot"><div class="mwrap"><span class="mshadow"></span><div class="mimg" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div></div><div class="mtools"><button class="chip sm' + (HUD.pickM ? ' on' : '') + '" data-hud="pickm">' + (HUD.pickM ? '캡처 위를 드래그하세요' : '캡처에서 따오기') + '</button></div><div class="bubble" id="hudsay">' + esc((I && I.say) || '주인님, 화면을 보여 주시면 필요한 것만 짚어 드리겠습니다.') + '</div></div>' + ((I && I.bottom) || '') + '</div></div>';
+    o += '<div class="hudpanel bottom"><div class="mascot"><div class="mwrap"><span class="mshadow"></span><div class="mimg" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div></div><div class="mtools"><button class="chip sm' + (HUD.pickM ? ' on' : '') + '" data-hud="pickm">' + (HUD.pickM ? '캡처 위를 드래그하세요' : '캡처에서 따오기') + '</button></div><div class="bubble" id="hudsay">' + esc((I && I.say) || '오셨습니까, 주인님. 화면을 보여 주시면 이 늙은이가 필요한 것만 짚어 드리지요. 히히…') + '</div></div>' + ((I && I.bottom) || '') + '</div></div>';
     return o;
   };
   async function hudMount() {
