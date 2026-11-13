@@ -648,7 +648,7 @@
     o += '<div class="row" style="margin-top:6px">' + (on ? '<button class="chip sm on" data-ocr="scan">지금 인식 (F8)</button><button class="chip sm' + (OCR.auto ? ' on' : '') + '" data-ocr="auto">자동 ' + (OCR.auto ? '켜짐' : '꺼짐') + '</button><button class="chip sm" data-ocr="stop">연결 해제</button>' : (sup ? '<button class="chip sm on" data-ocr="connect">게임 화면 연결</button>' : '<span class="small dim">이 브라우저는 화면 연결을 지원하지 않습니다. 스크린샷 붙여 넣기는 가능합니다.</span>')) + '<button class="chip sm' + (OCR.media ? ' on' : '') + '" data-ocr="media" title="키보드의 미디어 키(다음 곡 등)를 누르면 인식합니다. 게임 중에도 동작할 수 있는 실험적 방법입니다.">미디어 키 ' + (OCR.media ? '켜짐' : '꺼짐') + '</button></div>';
     if (OCR.status) o += '<div class="dockstatus">' + esc(OCR.status) + (OCR.ms ? ' <span class="dim">(' + OCR.ms + 'ms)</span>' : '') + '</div>';
     if (OCR.ask) o += '<div class="chips" style="margin:4px 0">' + DUNGEONS.filter(d => !OCR.ask.dgs || !OCR.ask.dgs.length || OCR.ask.dgs.includes(d.id)).map(d => '<button class="chip sm" data-oask="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '</div>';
-    if (OCR.thumb) o += '<div class="ocrprev" id="ocrprev"><img src="' + OCR.thumb + '" alt="" draggable="false">' + (r ? '<i style="left:' + r.x * 100 + '%;top:' + r.y * 100 + '%;width:' + r.w * 100 + '%;height:' + r.h * 100 + '%"></i>' : '') + '</div><div class="small dim">미리보기를 드래그하면 그 영역만 읽습니다. ' + (r ? '<a href="#" data-ocr="noregion">영역 해제</a> · ' : '') + '<a href="#" data-ocr="save">이 캡처 저장</a></div>';
+    if (OCR.thumb) o += '<div class="ocrprev" id="ocrprev"><img src="' + OCR.thumb + '" alt="" draggable="false">' + (r ? '<i style="left:' + r.x * 100 + '%;top:' + r.y * 100 + '%;width:' + r.w * 100 + '%;height:' + r.h * 100 + '%"></i>' : '') + '</div><div class="small dim">미리보기를 드래그하면 그 영역만 읽습니다. ' + (r ? '<a href="#" data-ocr="noregion">영역 해제</a> · ' : '') + '<a href="#" data-ocr="save">이 캡처 저장</a> · <a href="#" data-ocr="copy">클립보드에 복사</a></div>';
     if (OCR.lines.length) {
       o += '<div class="small dim" style="margin-top:6px">읽은 글자 — 단서가 되는 글자를 누르면 뜻을 등록할 수 있습니다</div><div class="chips docklines">' + OCR.lines.map((l, i) => '<button class="chip sm' + (OCR.pick === i ? ' on' : '') + '" data-opick="' + i + '">' + esc(l.slice(0, 28)) + '</button>').join('') + '</div>';
       if (OCR.pick != null) { const seen = {};
@@ -669,6 +669,12 @@
     else if (a === 'auto') { OCR.auto = !OCR.auto; clearInterval(OCR.timer); if (OCR.auto) { OCR.timer = setInterval(() => ocrScan(true), 2500); ocrScan(true); } }
     else if (a === 'media') mediaToggle();
     else if (a === 'noregion') { OCR.region = null; store.set('dd.ocrRegion', null); }
+    else if (a === 'copy') { if (!OCR.last) return;
+      if (!navigator.clipboard || !window.ClipboardItem) { OCR.status = '이 브라우저는 그림을 클립보드에 복사할 수 없습니다. "이 캡처 저장"을 쓰세요.'; dock(); return; }
+      // 복사는 누른 동작 안에서 시작해야 하므로, 그림 변환을 기다리는 약속을 그대로 넘긴다
+      const png = new Promise((ok, no) => OCR.last.toBlob(b => b ? ok(b) : no(new Error('변환 실패')), 'image/png'));
+      navigator.clipboard.write([new ClipboardItem({ 'image/png': png })]).then(() => { OCR.status = '캡처를 클립보드에 복사했습니다. 붙여 넣기(Ctrl+V)로 쓰세요.'; dock(); }).catch(() => { OCR.status = '클립보드 복사가 막혔습니다. 페이지를 한 번 누른 뒤 다시 시도하거나 "이 캡처 저장"을 쓰세요.'; dock(); });
+      return; }
     else if (a === 'save') { if (OCR.last) OCR.last.toBlob(b => { const u = URL.createObjectURL(b); const l = document.createElement('a'); l.href = u; l.download = 'dd-capture-' + Date.now() + '.png'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); }); }
     else if (a === 'clearalias') { if (confirm('등록한 글자를 모두 지울까요?')) { aliases = {}; store.set('dd.ocrAlias', aliases); } }
     dock();
