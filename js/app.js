@@ -675,15 +675,15 @@
   // ================= 오버레이: 전체 화면 · 3D · 캡처 위아래 여백 활용 =================
   const HUD = { screen: store.get('dd.hudScreen', 'auto'), edit: false, stage: null, layer: null, tr: null, sel: null, info: null, busy: false, typer: null, fresh: false };
   // 기본 영역: 영문 원본 UI(16:9) 기준 좌표. 모드나 해상도에 따라 다르면 영역 편집으로 고친다.
-  const cell = (role, col, row) => ({ role, x: 0.49 + col * 0.0558, y: row ? 0.311 : 0.151, w: 0.045, h: 0.129 });
+  const cell = (role, col) => ({ role, x: 0.359 + col * 0.03635, y: 0.135, w: 0.035, h: 0.086 });
   const DEFAULT_ZONES = {
-    provision: [{ role: 'dg', x: 0.58, y: 0.082, w: 0.29, h: 0.05 }, { role: 'len', x: 0.58, y: 0.082, w: 0.29, h: 0.05 },
-      cell('item:Food', 0, 0), cell('item:Shovel', 1, 0), cell('item:Antivenom', 2, 0), cell('item:Bandage', 3, 0), cell('item:Medicinal Herbs', 4, 0), cell('item:Skeleton Key', 5, 0), cell('item:Holy Water', 0, 1), cell('item:Laudanum', 1, 1), cell('item:Torch', 2, 1)],
+    provision: [{ role: 'title', x: 0.14, y: 0.16, w: 0.11, h: 0.07 }, { role: 'dg', x: 0.535, y: 0.08, w: 0.26, h: 0.045 }, { role: 'len', x: 0.535, y: 0.08, w: 0.26, h: 0.045 },
+      cell('item:Food', 0), cell('item:Shovel', 1), cell('item:Antivenom', 2), cell('item:Bandage', 3), cell('item:Medicinal Herbs', 4), cell('item:Skeleton Key', 5), cell('item:Holy Water', 6), cell('item:Laudanum', 7), cell('item:Torch', 8)],
     map: [{ role: 'title', x: 0.12, y: 0.15, w: 0.14, h: 0.08 }, { role: 'quest', x: 0.08, y: 0.24, w: 0.19, h: 0.35 }, { role: 'tag:darkest', x: 0.667, y: 0.088, w: 0.09, h: 0.035 }, { role: 'tag:ruins', x: 0.563, y: 0.198, w: 0.03, h: 0.035 }, { role: 'tag:warrens', x: 0.486, y: 0.365, w: 0.04, h: 0.035 }, { role: 'tag:cove', x: 0.715, y: 0.365, w: 0.045, h: 0.035 }, { role: 'tag:weald', x: 0.573, y: 0.48, w: 0.05, h: 0.035 }],
     dungeon: [], hero: [{ role: 'hero', x: 0.085, y: 0.185, w: 0.24, h: 0.05 }, { role: 'skills', x: 0.4835, y: 0.288, w: 0.2915, h: 0.068 }],
   };
-  let zones = store.get('dd.zones5', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
-  const saveZones = () => store.set('dd.zones5', zones);
+  let zones = store.get('dd.zones6', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
+  const saveZones = () => store.set('dd.zones6', zones);
   const SCREENS = [['auto', '자동'], ['map', '원정 선택'], ['provision', '보급품'], ['hero', '영웅 정보'], ['dungeon', '탐험 중']];
   const PROV9 = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom', 'Laudanum'];
   const DG_SHORT = { ruins: '중독 ○ · 출혈 ✕', weald: '출혈 ○ · 중독 ✕', warrens: '출혈 ○ · 중독 ✕', cove: '중독 ○ · 출혈 ✕', courtyard: '출혈 ○ · 중독 ✕', farmstead: '광역 · 지속력', darkest: '스트레스 · 이형' };
@@ -691,13 +691,13 @@
   const DG_BUTLER = { ruins: '해골들은 피가 없으니 출혈은 헛수고지요. 중독을 쓰시고 성수와 열쇠를 챙기십시오. 지난번처럼 빈손으로 가시진 않겠지요?', weald: '그곳 것들은 독을 밥처럼 먹으니 출혈로 다스리시지요. 삽과 붕대, 해독제… 잊으시면 영웅들이 대신 값을 치를 겁니다, 히히.', warrens: '돼지 놈들은 피를 잘 흘립니다. 병도 잘 옮기고요. 약초와 붕대를 챙기시지요. 요양원 주인이 주인님을 참 좋아합디다.', cove: '비늘 덮인 것들은 출혈이 잘 안 듣습니다. 중독을 쓰시고 삽과 약초를 넉넉히. 젖은 양말은 덤이옵니다.', courtyard: '흡혈귀들은 출혈에 약합니다만, 저쪽 칼날이 더 깊지요. 붕대를 한가득 챙기십시오. 물리시거든… 가까이 오지는 마시고요, 히히.', farmstead: '끝도 없이 몰려올 터이니 오래 버틸 채비나 하시지요. 횃불은 필요 없습니다. 어차피 볼 것도 없으니까요.', darkest: '그곳이라… 히히히. 마음 달랠 수단을 둘 이상 갖추시지요. 묘지기에게는 제가 미리 일러 두겠습니다.' };
   function rolesOf(screen) {
     if (screen === 'map') return [['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
-    if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
+    if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['title', '화면 제목 읽는 곳'], ['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
     if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)']];
     return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
   const READ_ROLES = ['dg', 'len', 'curio', 'hero', 'title', 'quest'];
-  const TITLE_WORDS = { map: ['영지지도', 'estatemap'], provision: ['provision', '보급품', '보급'] };
+  const TITLE_WORDS = { map: ['영지지도', 'estatemap'], provision: ['원정준비', 'provision', '보급품'] };
   // 직접 그린 안내 캐릭터 "까마귀 서기" (이 사이트 고유 캐릭터)
   const MASCOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 130"><ellipse cx="60" cy="122" rx="34" ry="6" fill="#000" opacity=".45"/><path d="M28 112c-6-30 4-62 32-62s38 32 32 62z" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M40 112c-2-18 2-34 20-34s22 16 20 34z" fill="#2a2732"/><circle cx="60" cy="40" r="26" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M52 44l-30 10 30 6z" fill="#d6a64a" stroke="#8a6a26" stroke-width="1.5"/><circle cx="68" cy="34" r="9" fill="#f3ead6"/><circle cx="70" cy="35" r="4" fill="#111"/><circle cx="68" cy="34" r="11.5" fill="none" stroke="#d6a64a" stroke-width="2.5"/><path d="M78 43q6 14 2 30" fill="none" stroke="#d6a64a" stroke-width="1.5"/><path d="M44 16l8 8M60 10v10M76 16l-7 8" stroke="#1c1a22" stroke-width="5" stroke-linecap="round"/><rect x="66" y="84" width="34" height="24" rx="3" fill="#e9dfc6" stroke="#8a6a26" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M72 92h20M72 98h20M72 104h12" stroke="#8a7a5a" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M30 84q-14 8-10 26 10-4 16-14z" fill="#16141b" stroke="#3a3542" stroke-width="2"/></svg>';
 
@@ -709,7 +709,7 @@
   function readHero(text) { const t = normT(text); let best = null; Object.keys(HERO_GUIDE).forEach(h => { [h, HERO_GUIDE[h].ko, overrides[h]].concat(HERO_GUIDE[h].alt).filter(Boolean).map(normT).forEach(w => { if (w.length >= 2 && (w.length >= 5 ? fuzzyIn(t, w) : t.includes(w)) && (!best || w.length > best.n)) best = { h, n: w.length }; }); }); return best && best.h; }
   function detectScreen(lines) { const a = normT(lines.join(' ')); const has = (w, d) => fuzzyIn(a, w, d);
     if (has('estatemap') || (has('goals', 0) && has('rewards')) || a.includes('영지지도') || (a.includes('목표') && a.includes('보상') && a.includes('원정준비'))) return 'map';
-    if (has('sellback', 1) || has('inventoryto') || has('되팔기', 0)) return 'provision';
+    if (has('sellback', 1) || has('inventoryto') || has('되팔기', 0) || a.includes('소지품을')) return 'provision';
     if (['quirks', 'equipment', 'resistances', 'campingskills', 'combatskills', 'preferredposition', 'basestats'].filter(w => has(w)).length >= 2) return 'hero';
     if (['전투기술', '야영기술', '저항력', '기본능력치', '추천위치', '추천목표', '죽음의일격'].filter(w => a.includes(w)).length >= 2) return 'hero';
     return null; }
@@ -836,7 +836,7 @@
     const tags = '<div class="chips">' + d.dmg.good.map(x => '<span class="tag good">' + esc(x) + '</span>').join('') + d.dmg.bad.map(x => '<span class="tag bad">✕ ' + esc(x) + '</span>').join('') + '</div>';
     const qty = k => (d.provisions[k] || [0, 0, 0])[len] || (k === 'Laudanum' ? [0, 1, 2][len] : 0);
     if (I.screen === 'provision') {
-      PROV9.forEach(k => { const n = qty(k); const z = zone('item:' + k); if (z) I.calls.push({ x: z.x + z.w / 2, y: z.y, kind: 'badge', tone: n ? 'use' : 'off', title: n ? '×' + n : '–', cell: z }); });
+      PROV9.forEach(k => { const n = qty(k); const z = zone('item:' + k); if (z) I.calls.push({ x: z.x + z.w / 2, y: z.y + z.h + 0.038, below: true, kind: 'badge', tone: n ? 'use' : 'off', title: n ? '×' + n : '–', cell: z }); });
       I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + ' · ' + LEN[len] + ' 원정 보급품</h2></div><div class="provrow">' + PROV9.map(k => { const n = qty(k); const p = PROV[k]; return '<span class="pv' + (n ? '' : ' zero') + '">' + pic(p.img, 0, 'ico') + '<b>' + (n ? '×' + n : '–') + '</b><small>' + esc(koOf(p.en, p.ko)) + '</small></span>'; }).join('') + '</div>';
       I.bottom = '<div class="row" style="margin-bottom:10px"><button class="chip' + (session.prov ? '' : ' on') + '" data-hud="fillbag">' + (session.prov ? '가방 수량 다시 맞추기' : '이 수량으로 가방 기록하기') + '</button><span class="small dim">기록해 두면 탐험 중 기물 안내가 "지금 가진 것" 기준으로 바뀝니다.</span></div><div class="two"><div class="card"><h3>챙길 이유</h3>' + ul(d.tips) + '</div><div class="card"><h3>먼저 잡을 적</h3>' + ul(d.threats) + '</div></div>';
       I.say = koOf(d.en, d.ko) + ', ' + LEN[len] + ' 원정이시라… 용감도 하셔라, 히히. 칸마다 수량을 적어 두었으니 금화 아끼지 마시지요. ' + (DG_BUTLER[dg] || ''); return;
@@ -909,7 +909,7 @@
       const g = new P.Container(); const col = TONEC[c.tone] || 0xd6a64a; let w, h; const bg = new P.Graphics(); g.addChild(bg);
       if (c.kind === 'badge') {
         const t = txt(c.title, F * (c.small ? 0.95 : 1.55), c.tone === 'off' ? 0xb8b0a3 : 0xeaf6e4, true); const px = F * 0.55, py = F * 0.12; w = t.width + px * 2; h = t.height + py * 2; t.position.set(px, py); g.addChild(t);
-        bg.lineStyle(2, col, 1).beginFill(c.tone === 'off' ? 0x161310 : 0x11160f, 0.96).drawRoundedRect(0, 0, w, h, F * 0.5).endFill(); g.cx = c.x * W; g.cy = c.y * H - h * 0.15;
+        bg.lineStyle(2, col, 1).beginFill(c.tone === 'off' ? 0x161310 : 0x11160f, 0.96).drawRoundedRect(0, 0, w, h, F * 0.5).endFill(); g.cx = c.x * W; g.cy = c.below ? c.y * H + h / 2 : c.y * H - h * 0.15;
         if (c.cell && c.tone !== 'off') { const r = new P.Graphics().lineStyle(2, col, 0.9).drawRoundedRect(c.cell.x * W, c.cell.y * H, c.cell.w * W, c.cell.h * H, 4); fxL.addChild(r); pulses.push({ r, ph: i * 0.6 }); }
       } else if (c.kind === 'tag') {
         const t = txt(c.title, F * 0.95, 0xe9e1d3, true), s = txt(c.sub, F * 0.9, c.on ? 0xe9e1d3 : 0xa79b89, false); const px = F * 0.5, py = F * 0.15; t.position.set(px, py); s.position.set(px + t.width + F * 0.45, py + (t.height - s.height) / 2); g.addChild(t, s); w = s.x + s.width + px; h = t.height + py * 2;
