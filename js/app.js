@@ -614,7 +614,9 @@
     if (!silent) { OCR.status = '인식 중…'; if (parseHash().view !== 'hud') OCR.open = true; dock(); }
     try {
       const t0 = performance.now(); const cv0 = prep(src, W, H);
-      if (parseHash().view === 'hud') { OCR.pick = null; HUD.force = null; await hudAnalyze(); OCR.status = '오버레이 갱신됨'; render(true); }
+      if (parseHash().view === 'hud') { OCR.pick = null; HUD.force = null;
+        HUD.info = { screen: null, pending: true, calls: [], top: '<p class="reading"><i></i>화면을 읽는 중…</p>', bottom: '', say: '어디 보자… 잠시만 기다리시지요, 주인님.' }; HUD.fresh = true; render(true);   // 그림부터 보여 준다
+        await hudAnalyze(); HUD.fresh = false; HUD.popin = true; OCR.status = '오버레이 갱신됨'; render(true); }
       else { const lines = await recognizeCanvas(cv0); OCR.lines = lines.slice(0, 24); OCR.pick = null; OCR.result = classify(lines); applyResult(OCR.result, silent); }
       OCR.ms = Math.round(performance.now() - t0);
     } catch (e) { OCR.status = '인식 실패: ' + e.message + (location.protocol === 'file:' ? ' (파일로 직접 연 경우 동작하지 않습니다. 배포된 주소에서 사용하세요.)' : ''); }
@@ -804,7 +806,7 @@
   const DB = { p: null,
     open() { return this.p || (this.p = new Promise((ok, no) => { const r = indexedDB.open('dd-overlay', 1); r.onupgradeneeded = () => r.result.createObjectStore('caps', { keyPath: 'key' }); r.onsuccess = () => ok(r.result); r.onerror = () => no(r.error); })); },
     async tx(mode, fn) { try { const db = await this.open(); return await new Promise((ok, no) => { const t = db.transaction('caps', mode); const rq = fn(t.objectStore('caps')); t.oncomplete = () => ok(rq && rq.result); t.onerror = () => no(t.error); }); } catch (e) { return null; } },
-    put(v) { return this.tx('readwrite', st => st.put(v)); }, del(k) { return this.tx('readwrite', st => st.delete(k)); }, clear() { return this.tx('readwrite', st => st.clear()); }, all() { return this.tx('readonly', st => st.getAll()); } };
+    put(v) { return this.tx('readwrite', st => st.put(v)); }, async clearCaps() { const rows = (await this.all()) || []; for (const r of rows) if (r.key !== 'placeholder') await this.del(r.key); }, del(k) { return this.tx('readwrite', st => st.delete(k)); }, clear() { return this.tx('readwrite', st => st.clear()); }, all() { return this.tx('readonly', st => st.getAll()); } };
   function persistCap(key, cv, info, thumb) { try { cv.toBlob(blob => { if (!blob) return; const rest = Object.assign({}, info); ['src', 'calls', 'top', 'bottom', 'say'].forEach(k => delete rest[k]); DB.put({ key, blob, info: rest, thumb: thumb || null, t: Date.now() }); }, 'image/jpeg', 0.9); } catch (e) { /* 저장 실패는 무시 (메모리에는 남아 있음) */ } }
   // 저장해 둔 캡처와 읽은 내용을 ZIP 한 개로 내려받는다 (압축 없이 묶기만 함)
   function zipStore(files) {
@@ -820,7 +822,7 @@
     return new Blob(parts.concat(cen, [new Uint8Array(end.buffer)]), { type: 'application/zip' });
   }
   async function exportCaps() {
-    const rows = (await DB.all()) || []; if (!rows.length) { alert('저장된 캡처가 없습니다. 먼저 화면을 캡처하세요.'); return; }
+    const rows = ((await DB.all()) || []).filter(r => r.key !== 'placeholder'); if (!rows.length) { alert('저장된 캡처가 없습니다. 먼저 화면을 캡처하세요.'); return; }
     const files = []; const meta = { exported: new Date().toISOString(), page: location.href.split('#')[0], session, context: ctx, bag: run.inv, zones, learned: aliases, termOverrides: overrides, captures: [] };
     for (const r of rows) { const name = r.key.replace(':', '-').replace(/[^\w가-힣-]/g, '_') + '.jpg'; files.push({ name, data: new Uint8Array(await r.blob.arrayBuffer()) }); const i = r.info || {};
       meta.captures.push({ file: name, key: r.key, time: new Date(r.t).toISOString(), screen: i.screen, dungeon: i.dg, length: i.len, hero: i.hero, curio: i.curio, boss: i.boss, guessedDungeon: !!i.guess, pickedSkills: i.picked || null, quirks: (i.quirks || []).map(q => ({ text: q.t, box: q.b })), lines: ((i.det || {}).lines || []).map(l => l.t) }); }
@@ -830,7 +832,7 @@
   }
   async function restoreCaps() {
     const rows = (await DB.all()) || []; if (!rows.length) return; rows.sort((a, b) => a.t - b.t); let last = null;
-    for (const r of rows) { try { const bm = await createImageBitmap(r.blob); const cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height; cv.getContext('2d').drawImage(bm, 0, 0); const info = r.info; info.src = cv;
+    for (const r of rows) { try { const bm = await createImageBitmap(r.blob); if (r.key === 'placeholder') { const pc = document.createElement('canvas'); pc.width = bm.width; pc.height = bm.height; pc.getContext('2d').drawImage(bm, 0, 0); HUD.placeholder = pc; continue; } const cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height; cv.getContext('2d').drawImage(bm, 0, 0); const info = r.info; info.src = cv;
       if (r.key.startsWith('stage:')) HUD.cache[r.key.slice(6)] = { cv, info }; else { const h = r.key.slice(5); info.cachedAs = h; HUD.heroCache[h] = { cv, info, thumb: r.thumb }; } last = { cv, info }; } catch (e) { /* 깨진 항목은 건너뜀 */ } }
     if (last && !OCR.last) { OCR.last = last.cv; HUD.info = last.info; hudBuild(); }
     if (parseHash().view === 'hud') render(true);
@@ -960,11 +962,11 @@
   V.hud = function () {
     const I = HUD.info; if (I && I.screen) hudBuild();
     const scr = (I && I.screen) || (HUD.force || null); const es = scr || 'provision';
-    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a><span class="sep"></span><div class="steps">' + STAGES.map(([v, l], i) => '<button class="step' + (scr === v ? ' cur' : '') + (stageDone(v) ? ' done' : '') + (HUD.cache[v] ? ' has' : '') + (HUD.force === v ? ' pin' : '') + '" data-hscreen="' + v + '" title="' + (HUD.cache[v] ? '이 단계에서 찍어 둔 캡처 보기' : '지금 캡처를 이 화면으로 분석') + '"><i>' + (stageDone(v) ? '✓' : i + 1) + '</i>' + l + '</button>').join('<span class="stepline"></span>') + '</div><span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="newrun" title="이번 원정의 캡처와 기록을 모두 지우고 다음 원정을 시작합니다">탐험 완료</button><button class="chip sm" data-hud="exportcaps" title="저장해 둔 캡처와 읽은 내용을 ZIP 파일로 내려받습니다">캡처 내보내기</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
+    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a><span class="sep"></span><div class="steps">' + STAGES.map(([v, l], i) => '<button class="step' + (scr === v ? ' cur' : '') + (stageDone(v) ? ' done' : '') + (HUD.cache[v] ? ' has' : '') + (HUD.force === v ? ' pin' : '') + '" data-hscreen="' + v + '" title="' + (HUD.cache[v] ? '이 단계에서 찍어 둔 캡처 보기' : '지금 캡처를 이 화면으로 분석') + '"><i>' + (stageDone(v) ? '✓' : i + 1) + '</i>' + l + '</button>').join('<span class="stepline"></span>') + '</div><span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="newrun" title="이번 원정의 캡처와 기록을 모두 지우고 다음 원정을 시작합니다">탐험 완료</button>' + (OCR.last ? '<button class="chip sm" data-hud="setph" title="지금 보이는 그림을 캡처가 없을 때의 대기 화면으로 씁니다 (이 브라우저에만 저장)">대기 화면으로 지정</button>' : '') + '<button class="chip sm" data-hud="exportcaps" title="저장해 둔 캡처와 읽은 내용을 ZIP 파일로 내려받습니다">캡처 내보내기</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
     if (I && (scr === 'map' || scr === 'provision')) o += '<div class="hudbar">' + (I.ask === 'dg' ? '<b class="askb">던전 선택 ▸</b>' : '') + DUNGEONS.map(d => '<button class="chip sm' + (I.dg === d.id ? ' on' : '') + '" data-hdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '<span class="sep"></span>' + ['짧은', '중간', '긴'].map((l, i) => '<button class="chip sm' + (I.len === i ? ' on' : '') + '" data-hlen="' + i + '">' + l + '</button>').join('') + '</div>';
     if (scr === 'hero') o += '<div class="hudbar"><span class="small dim">이번 원정 영웅</span>' + (session.heroes.length ? session.heroes.map((h, k) => '<button class="chip sm' + (I && I.hero === h ? ' on' : '') + '" data-hroster="' + esc(h) + '" title="' + (HUD.heroCache[h] ? '찍어 둔 캡처 보기' : '캡처 없음') + '">' + (k < 4 ? '' : '<span class="dim">후보 </span>') + esc(heroKo(h)) + '</button>').join('') : '<span class="small dim">아직 없습니다. 영웅 정보 화면을 찍으면 여기에 쌓입니다.</span>') + '</div>';
     if (HUD.edit) o += '<div class="hudbar"><b>' + (STAGES.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
-    o += '<div class="hudpanel top">' + (I && I.top && scr ? '<div class="eyebrow">' + ({ map: '원정 선택 화면', provision: '보급품 구매 화면', hero: '영웅 정보 화면', dungeon: '탐험 중' }[scr] || '') + (ctx.dg && scr !== 'map' && DG[ctx.dg] ? ' · ' + esc(koOf(DG[ctx.dg].en, DG[ctx.dg].ko)) : '') + '</div>' : '') + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처가 없습니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결한 뒤 단축키를 누르거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>')) + '</div>';
+    o += '<div class="hudpanel top">' + (I && I.top && scr ? '<div class="eyebrow">' + ({ map: '원정 선택 화면', provision: '보급품 구매 화면', hero: '영웅 정보 화면', dungeon: '탐험 중' }[scr] || '') + (ctx.dg && scr !== 'map' && DG[ctx.dg] ? ' · ' + esc(koOf(DG[ctx.dg].en, DG[ctx.dg].ko)) : '') + '</div>' : '') + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처를 기다리는 중입니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결한 뒤 단축키를 누르거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.' + (HUD.placeholder ? '' : ' 원하는 그림을 붙여 넣고 <b>대기 화면으로 지정</b>을 누르면 그 그림이 여기에 걸립니다.') + '</p>')) + '</div>';
     o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.slide ? (HUD.slide > 0 ? ' slideL' : ' slideR') : HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls"></div><div id="hudzoom" hidden></div></div><div class="mwrap"><span class="mshadow"></span><div class="mimg" tabindex="0" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div></div></div>';
     o += '<div class="hudpanel bottom"><div class="mascot"><div class="mtools"><button class="chip sm' + (HUD.pickM ? ' on' : '') + '" data-hud="pickm">' + (HUD.pickM ? '캡처 위를 드래그하세요' : '캡처에서 따오기') + '</button></div><div class="bubble" id="hudsay">' + esc((I && I.say) || '오셨습니까, 주인님. 화면을 보여 주시면 이 늙은이가 필요한 것만 짚어 드리지요. 히히…') + '</div></div>' + ((I && I.bottom) || (scr === 'hero' ? heroRoster() : '')) + '</div></div>';
     return o;
@@ -977,15 +979,15 @@
     const el = $('#hudstage'); if (!el) return;
     const base = new URL('vendor/', location.href.split('#')[0]).href;
     try { if (HUD.edit) { if (!window.Konva) await loadScript(base + 'konva/konva.min.js'); } else if (!window.PIXI) await loadScript(base + 'pixi/pixi.min.js'); } catch (e) { /* 아래에서 대체 표시 */ }
-    const sc = $('#hudscene'); if (!sc || !$('#hudstage')) return; const src = OCR.last; const ar = src ? src.height / src.width : 9 / 16;
+    const sc = $('#hudscene'); if (!sc || !$('#hudstage')) return; const src = OCR.last || HUD.placeholder; const ar = src ? src.height / src.width : 9 / 16;
     let W = window.innerWidth, H = W * ar; const maxH = window.innerHeight * (window.innerHeight > window.innerWidth ? 0.5 : 0.6); if (H > maxH) { H = maxH; W = H / ar; } W = Math.round(W); H = Math.round(H);
     const d3 = $('#hud3d'); d3.style.width = W + 'px'; d3.style.height = H + 'px';
     if (HUD.stage) { HUD.stage.destroy(); HUD.stage = null; } if (HUD.app && (HUD.edit || HUD.appW !== W || HUD.appH !== H)) { try { HUD.app.destroy(true, { children: true }); } catch (e) { /* 무시 */ } HUD.app = null; }
     if (HUD.edit && window.Konva) { HUD.stage = new Konva.Stage({ container: 'hudstage', width: W, height: H }); HUD.layer = new Konva.Layer(); HUD.stage.add(HUD.layer); hudDraw(); }
     else { let ok = false; if (window.PIXI) { try { pixiScene(W, H); ok = true; } catch (e) { ok = false; } } if (!ok) domScene(W, H); else { const hc = $('#hudcalls'); if (hc) hc.innerHTML = tslotHTML(); applyZoom(); } }
     const say = $('#hudsay'); clearInterval(HUD.typer);
-    if (say && HUD.fresh) { const full = say.textContent; let n = 0; say.style.minHeight = say.offsetHeight + 'px'; say.textContent = ''; HUD.typer = setInterval(() => { n += 2; say.textContent = full.slice(0, n); if (n >= full.length) clearInterval(HUD.typer); }, 16); }
-    HUD.fresh = false; HUD.slide = 0;
+    if (say && (HUD.fresh || HUD.popin)) { const full = say.textContent; let n = 0; say.style.minHeight = say.offsetHeight + 'px'; say.textContent = ''; HUD.typer = setInterval(() => { n += 2; say.textContent = full.slice(0, n); if (n >= full.length) clearInterval(HUD.typer); }, 16); }
+    HUD.fresh = false; HUD.slide = 0; HUD.popin = false;
     placeMascot(); const mi = $('.hudscene .mimg img'); if (mi && !mi.complete) mi.addEventListener('load', placeMascot, { once: true });
   }
   function tslotHTML() { const I = HUD.info; if (!I || !I.calls) return '';
@@ -997,22 +999,22 @@
       return '<div class="tslot' + (c.k === 1 ? ' up' : '') + '" style="left:' + (z.x * 100 + z.w * 4).toFixed(2) + '%;top:' + (z.y * 100).toFixed(2) + '%;width:' + (z.w * 92).toFixed(2) + '%;height:' + (z.h * 100).toFixed(2) + '%">' + pic(t.img, 0, '') + '<span class="tname">' + esc(koOf(t.en, t.ko)) + '</span><span class="ttip"><b>' + esc(koOf(t.en, t.ko)) + (t.ko ? ' <small>' + esc(t.en) + '</small>' : '') + '</b>' + (c.k === 2 ? '<i>3번째 칸 (모드)</i>' : '') + t.fx.map(esc).join('<br>') + '</span></div>'; }).join(''); }
   // WebGL을 쓸 수 없을 때의 대체 표시 (캡처 그림 + HTML 표시)
   function domScene(W, H) {
-    const host = $('#hudstage'); host.innerHTML = ''; if (OCR.last) { const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(OCR.last, 0, 0, W, H); host.appendChild(c); }
+    const host = $('#hudstage'); host.innerHTML = ''; if (OCR.last || HUD.placeholder) { const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(OCR.last || HUD.placeholder, 0, 0, W, H); host.appendChild(c); }
     const I = HUD.info; if (!I) return;
     $('#hudcalls').innerHTML = tslotHTML() + I.calls.filter(c => c.kind !== 'tslot' && c.kind !== 'cslot' && c.kind !== 'qbox').map(c => c.kind === 'badge' ? '<div class="call badge center ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%">' + esc(c.title) + '</div>' : c.kind === 'tag' ? '<div class="call tagc' + (c.on ? ' on' : '') + '" data-hdg="' + c.dg + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b> ' + esc(c.sub) + '</div>' : '<div class="call card ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b><br>' + c.lines.map(esc).join('<br>') + '</div>').join('');
   }
   // 캔버스 장면 (PixiJS, WebGL): 캡처 + 강조 칸 + 떠 있는 표시 + 불티. 마우스를 따라 층마다 다르게 움직여 깊이감을 준다.
   function pixiScene(W, H) {
-    const host = $('#hudstage'); host.innerHTML = ''; const P = window.PIXI; const I = HUD.info, src = OCR.last;
+    const host = $('#hudstage'); host.innerHTML = ''; const P = window.PIXI; const I = HUD.info, src = OCR.last || HUD.placeholder; const waiting = !OCR.last;
     const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    let app = HUD.app; const intro = HUD.fresh || !app;
+    let app = HUD.app; const intro = HUD.fresh || HUD.popin || !app;
     if (!app) { app = new P.Application({ width: W, height: H, backgroundAlpha: 0, antialias: true, resolution: Math.min(2, window.devicePixelRatio || 1), autoDensity: true }); HUD.app = app; HUD.appW = W; HUD.appH = H; }
     else { if (HUD.tick) app.ticker.remove(HUD.tick); app.stage.removeChildren().forEach(c => c.destroy({ children: true })); }
     host.appendChild(app.view);
     const bgL = new P.Container(), fxL = new P.Container(), callL = new P.Container(); app.stage.addChild(bgL, fxL, callL);
     if (HUD.fresh || !HUD.zoom) HUD.zoom = { s: 1, x: 0, y: 0 }; applyZoom();
     if (src) { const sp = new P.Sprite(P.Texture.from(src)); sp.width = W; sp.height = H; bgL.addChild(sp); }   // 배경은 정확한 크기로 고정 (칸 표시와 어긋나지 않게)
-    bgL.addChild(new P.Graphics().beginFill(0x000000, src ? 0.34 : 0).drawRect(-W * 0.05, -H * 0.05, W * 1.1, H * 1.1).endFill());
+    bgL.addChild(new P.Graphics().beginFill(0x000000, src && !waiting ? (I && I.pending ? 0.12 : 0.34) : 0).drawRect(-W * 0.05, -H * 0.05, W * 1.1, H * 1.1).endFill());
     const F = Math.max(11, Math.round(W / 88)); const font = 'Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
     const TONEC = { use: 0x6fae5c, ok: 0xd6a64a, no: 0xd0584a, gamble: 0xa98bd0, off: 0x5c5248 };
     const txt = (s, size, fill, bold, wrap) => new P.Text(s, { fontFamily: font, fontSize: size, fill, fontWeight: bold ? '800' : '500', wordWrap: !!wrap, wordWrapWidth: wrap || 0, breakWords: true, lineHeight: Math.round(size * 1.4) });
@@ -1038,7 +1040,7 @@
       }
       g.bs = g.bs || 1; g.scale.set(g.bs); g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still || !intro ? 1 : 0; callL.addChild(g); items.push({ g, d: intro ? i * 0.045 : -1, ph: i * 1.3 });
     });
-    if (I && ['map', 'hero', 'provision'].includes(I.screen) && session.heroes.length && src) {
+    if (I && ['map', 'hero', 'provision'].includes(I.screen) && session.heroes.length && src && !waiting) {
       const pz = (zones[I.screen] || []).find(z => z.role === 'party') || PARTY_ZONE; const cw = pz.w / 4;
       const mk = (h, x, extra) => { const g = new P.Container(); const w = cw * W * 0.9, hh = pz.h * H; const cur = h === I.hero && I.screen === 'hero'; const r = new P.Graphics();
         if (extra) { r.lineStyle(1.5, cur ? 0xd6a64a : 0x6d5420, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, hh, 4).endFill(); g.addChild(r); const c = HUD.heroCache[h]; if (c && c.thumb) { const sp = P.Sprite.from(c.thumb); sp.width = w - 4; sp.height = hh - 4; sp.position.set(2, 2); g.addChild(sp); } }
@@ -1122,9 +1124,10 @@
     else if (d.hcurio != null && I) { I.curio = d.hcurio; hudBuild(); }
     else if (d.hud === 'rescan') { hudRun(); return; }
     else if (d.hud === 'exportcaps') { exportCaps(); return; }
+    else if (d.hud === 'setph') { if (!OCR.last) return; HUD.placeholder = OCR.last; OCR.last.toBlob(b => { if (b) DB.put({ key: 'placeholder', blob: b, t: Date.now() }); }, 'image/jpeg', 0.9); OCR.status = '대기 화면으로 지정했습니다.'; dock(); return; }
     else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
     else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
-    else if (d.hud === 'newrun') { if (!confirm('탐험을 마치셨나요? 이번 원정의 캡처와 기록(던전, 영웅, 가방, 만난 기물)을 모두 지우고 다음 원정을 시작합니다.')) return; DB.clear(); HUD.heroCache = {}; OCR.last = null; OCR.thumb = null; run.inv = {}; saveRun(); session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
+    else if (d.hud === 'newrun') { if (!confirm('탐험을 마치셨나요? 이번 원정의 캡처와 기록(던전, 영웅, 가방, 만난 기물)을 모두 지우고 다음 원정을 시작합니다.')) return; DB.clearCaps(); HUD.heroCache = {}; OCR.last = null; OCR.thumb = null; run.inv = {}; saveRun(); session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
     else if (d.hud === 'fillbag' && I && I.dg) { const dgd = DG[I.dg]; run.dg = I.dg; run.inv = {}; PROV9.forEach(k => { run.inv[k] = (dgd.provisions[k] || [0, 0, 0])[I.len || 0] || (k === 'Laudanum' ? [0, 1, 2][I.len || 0] : 0); }); saveRun(); session.prov = true; saveSession(); }
     else if (d.hud === 'clearheroes') { Object.keys(HUD.heroCache).forEach(h => DB.del('hero:' + h)); session.heroes = []; HUD.heroCache = {}; saveSession(); }
     else if (d.hud === 'tobuilder') { const sl = partyFromHeroes(session.heroes); bld = { slots: sl.map((h, i) => h ? { hero: h, skills: defaultSkills(h, 4 - i) } : null), active: Math.max(0, sl.indexOf(null)), dg: ctx.dg || '' }; saveBld(); location.hash = '#/builder'; return; }

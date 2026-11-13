@@ -478,3 +478,11 @@ main:has(.runwrap){max-width:1560px}
 .fixhero{display:flex;flex-wrap:wrap;gap:6px;align-items:center;font-size:var(--t-xs);color:var(--faint);margin-top:2px}
 .fixhero select{padding:2px 8px;font-size:var(--t-sm)}
 .fixhero.ask{font-size:var(--t-md);color:var(--gold)}
+
+/* 캡처를 먼저 보여 주고 읽는 동안의 표시 */
+.reading{display:flex;align-items:center;gap:8px;color:var(--gold);margin:0}
+.reading i{width:14px;height:14px;border-radius:50%;border:2px solid var(--gold);border-top-color:transparent;animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+/* 캡처도 대기 화면도 없을 때의 빈 판 */
+#hudstage:empty{min-height:120px}
+.hud3d{background:radial-gradient(ellipse at 50% 60%,#2a1512,#0b0807 70%)}
