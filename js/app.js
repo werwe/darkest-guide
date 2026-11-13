@@ -868,7 +868,7 @@
     if (I && scr === 'hero') o += '<div class="hudbar">' + (I.ask === 'hero' ? '<b class="askb">영웅 선택 ▸</b>' : '') + Object.keys(HERO_GUIDE).map(h => '<button class="chip sm' + (I.hero === h ? ' on' : '') + '" data-hhero="' + esc(h) + '">' + esc(heroKo(h)) + '</button>').join('') + '</div>';
     if (HUD.edit) o += '<div class="hudbar"><b>' + (STAGES.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
     o += '<div class="hudpanel top">' + (I && I.top && scr ? '<div class="eyebrow">' + ({ map: '원정 선택 화면', provision: '보급품 구매 화면', hero: '영웅 정보 화면', dungeon: '탐험 중' }[scr] || '') + (ctx.dg && scr !== 'map' && DG[ctx.dg] ? ' · ' + esc(koOf(DG[ctx.dg].en, DG[ctx.dg].ko)) : '') + '</div>' : '') + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처가 없습니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결한 뒤 단축키를 누르거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>')) + '</div>';
-    o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls"></div><div id="hudzoom" hidden></div></div><div class="mwrap"><span class="mshadow"></span><div class="mimg" tabindex="0" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div></div></div>';
+    o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.slide ? (HUD.slide > 0 ? ' slideL' : ' slideR') : HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls"></div><div id="hudzoom" hidden></div></div><div class="mwrap"><span class="mshadow"></span><div class="mimg" tabindex="0" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div></div></div>';
     o += '<div class="hudpanel bottom"><div class="mascot"><div class="mtools"><button class="chip sm' + (HUD.pickM ? ' on' : '') + '" data-hud="pickm">' + (HUD.pickM ? '캡처 위를 드래그하세요' : '캡처에서 따오기') + '</button></div><div class="bubble" id="hudsay">' + esc((I && I.say) || '오셨습니까, 주인님. 화면을 보여 주시면 이 늙은이가 필요한 것만 짚어 드리지요. 히히…') + '</div></div>' + ((I && I.bottom) || (scr === 'hero' ? heroRoster() : '')) + '</div></div>';
     return o;
   };
@@ -884,7 +884,7 @@
     else { let ok = false; if (window.PIXI) { try { pixiScene(W, H); ok = true; } catch (e) { ok = false; } } if (!ok) domScene(W, H); }
     const say = $('#hudsay'); clearInterval(HUD.typer);
     if (say && HUD.fresh) { const full = say.textContent; let n = 0; say.style.minHeight = say.offsetHeight + 'px'; say.textContent = ''; HUD.typer = setInterval(() => { n += 2; say.textContent = full.slice(0, n); if (n >= full.length) clearInterval(HUD.typer); }, 16); }
-    HUD.fresh = false;
+    HUD.fresh = false; HUD.slide = 0;
   }
   // WebGL을 쓸 수 없을 때의 대체 표시 (캡처 그림 + HTML 표시)
   function domScene(W, H) {
@@ -964,6 +964,7 @@
     app.stage.scale.set(z.s); app.stage.position.set(z.x, z.y); const el = $('#hudzoom'); if (el) { el.hidden = z.s === 1; el.textContent = z.s.toFixed(1) + '× · 끌어서 이동 · 더블클릭으로 원래대로'; }
     const d3 = $('#hud3d'); if (d3) d3.classList.toggle('zoomed', z.s > 1); }
   document.addEventListener('wheel', e => { const sc = e.target.closest && e.target.closest('#hud3d'); if (!sc || HUD.edit || !HUD.app || !HUD.zoom) return; e.preventDefault();
+    if (Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.5 && HUD.zoom.s <= 1) { wheelX += e.deltaX; if (Math.abs(wheelX) > 90 && Date.now() - wheelAt > 600) { wheelAt = Date.now(); goStage(wheelX > 0 ? 1 : -1); wheelX = 0; } return; }
     const b = sc.getBoundingClientRect(); const px = (e.clientX - b.left) * HUD.appW / b.width, py = (e.clientY - b.top) * HUD.appH / b.height; const z = HUD.zoom; const ns = Math.min(6, Math.max(1, z.s * Math.exp(-e.deltaY * 0.0016)));
     z.x = px - (px - z.x) * ns / z.s; z.y = py - (py - z.y) * ns / z.s; z.s = ns; applyZoom(); }, { passive: false });
   let zdrag = null;
@@ -971,6 +972,18 @@
   document.addEventListener('pointermove', e => { if (!zdrag) return; HUD.zoom.x = zdrag.zx + (e.clientX - zdrag.x) * zdrag.k; HUD.zoom.y = zdrag.zy + (e.clientY - zdrag.y) * zdrag.k; applyZoom(); });
   document.addEventListener('pointerup', () => { zdrag = null; });
   document.addEventListener('dblclick', e => { if (e.target.closest && e.target.closest('#hud3d') && HUD.zoom && !HUD.edit) { HUD.zoom = { s: 1, x: 0, y: 0 }; applyZoom(); } });
+  // 좌우로 넘기기: 캡처를 옆으로 끌거나(스와이프), 방향키, 트랙패드 좌우 스크롤로 찍어 둔 단계 사이를 오간다
+  function goStage(dir) {
+    const order = STAGES.map(x => x[0]); const I = HUD.info; let i = I && I.screen ? order.indexOf(I.screen) : (dir > 0 ? -1 : order.length);
+    for (i += dir; i >= 0 && i < order.length; i += dir) if (HUD.cache[order[i]]) { HUD.slide = dir; const b = $('.step[data-hscreen="' + order[i] + '"]'); if (b) b.click(); return true; }
+    const d3 = $('#hud3d'); if (d3) { d3.classList.remove('bump'); void d3.offsetWidth; d3.style.setProperty('--bump', (dir > 0 ? -1 : 1) * 14 + 'px'); d3.classList.add('bump'); } return false;   // 그쪽에는 찍어 둔 캡처가 없음
+  }
+  let sw = null, wheelX = 0, wheelAt = 0;
+  document.addEventListener('pointerdown', e => { const d3 = e.target.closest && e.target.closest('#hud3d'); if (!d3 || HUD.edit || HUD.pickM || (HUD.zoom && HUD.zoom.s > 1) || e.button) return; sw = { x: e.clientX, y: e.clientY, d3 }; });
+  document.addEventListener('pointermove', e => { if (!sw) return; const dx = e.clientX - sw.x; if (Math.abs(dx) > 12) sw.d3.style.translate = (dx * 0.45).toFixed(0) + 'px 0'; });
+  document.addEventListener('pointerup', e => { if (!sw) return; const dx = e.clientX - sw.x, dy = e.clientY - sw.y, d3 = sw.d3; sw = null; d3.style.translate = ''; if (Math.abs(dx) > 70 && Math.abs(dx) > Math.abs(dy) * 1.5) goStage(dx < 0 ? 1 : -1); });
+  document.addEventListener('pointercancel', () => { if (sw) { sw.d3.style.translate = ''; sw = null; } });
+  document.addEventListener('keydown', e => { if (parseHash().view !== 'hud' || HUD.edit || /INPUT|TEXTAREA|SELECT/.test(document.activeElement.tagName)) return; if (e.key === 'ArrowRight') { e.preventDefault(); goStage(1); } else if (e.key === 'ArrowLeft') { e.preventDefault(); goStage(-1); } });
   // 3D 기울임: 마우스를 따라 캡처 판이 기울고 말풍선은 앞으로 떠 보인다
   document.addEventListener('pointermove', e => { const s = e.target.closest && e.target.closest('#hudscene'); const d3 = $('#hud3d'); if (!d3 || HUD.edit || HUD.pickM || (HUD.zoom && HUD.zoom.s > 1)) { if (d3 && (HUD.pickM || (HUD.zoom && HUD.zoom.s > 1))) { d3.style.transform = 'none'; HUD.par = { x: 0, y: 0 }; } return; } if (!s) { d3.style.transform = ''; HUD.par = { x: 0, y: 0 }; return; }
     const b = d3.getBoundingClientRect(); const x = (e.clientX - b.left) / b.width - 0.5, y = (e.clientY - b.top) / b.height - 0.5; HUD.par = { x, y }; d3.classList.remove('enter'); d3.style.transform = 'rotateX(' + (-y * 9).toFixed(2) + 'deg) rotateY(' + (x * 12).toFixed(2) + 'deg)'; });
