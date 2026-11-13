@@ -746,40 +746,62 @@
     HUD.info = I; HUD.fresh = true; hudBuild();
   }
   function itemT2(id) { const en = ITEM_EN[id] || id; const p = PROV[en]; return id === 'hand' ? '맨손' : koOf(en, p ? p.ko : ITEM_KO[id]); }
-  // 분석 결과 → 캡처 위 말풍선(calls) + 위/아래 패널 + 캐릭터 대사
+  // ---- 원정 세션: 화면을 넘길 때마다 쌓이는 맥락 (던전·길이·확인한 영웅·만난 기물) ----
+  const STAGES = [['map', '원정 선택'], ['hero', '영웅 확인'], ['provision', '보급'], ['dungeon', '탐험']];
+  let session = store.get('dd.session', { heroes: [], curios: [], prov: false });
+  const saveSession = () => store.set('dd.session', session);
+  function stageDone(s) { return s === 'map' ? !!ctx.dg : s === 'hero' ? session.heroes.length > 0 : s === 'provision' ? session.prov : session.curios.length > 0; }
+  function partyFromHeroes(hs) {   // 확인한 영웅을 권장 자리에 앉혀 본다 (앞자리부터 채움)
+    const slots = [null, null, null, null]; const left = hs.slice(0, 4);
+    [1, 2, 3, 4].forEach(pos => { let k = left.findIndex(h => HERO_GUIDE[h].pos[0] === pos); if (k < 0) k = left.findIndex(h => HERO_GUIDE[h].pos.includes(pos)); if (k >= 0) { slots[4 - pos] = left[k]; left.splice(k, 1); } });
+    left.forEach(h => { const i = slots.indexOf(null); if (i >= 0) slots[i] = h; }); return slots;
+  }
+  function checkHeroes(hs, dg) {   // 편성기의 점검 규칙을 그대로 빌려 쓴다
+    const keep = bld; bld = { slots: partyFromHeroes(hs).map((h, i) => h ? { hero: h, skills: defaultSkills(h, 4 - i) } : null), active: 0, dg: dg || '' };
+    const A = analyze(); bld = keep; return { A, slots: partyFromHeroes(hs) };
+  }
+  function invBanner(c) {   // 가방 수량 기준 안내 (원정 진행 화면과 같은 규칙)
+    const v = verdict(c); if (!v.item) return '';
+    const opts = [v.item].concat(v.also || []).filter(i => PROV[ITEM_EN[i]]); const have = opts.find(i => (run.inv[ITEM_EN[i]] || 0) > 0);
+    if (!opts.length) return ''; if (have) return '<div class="note good"><b>' + itemT(have) + '</b> 보유 ' + run.inv[ITEM_EN[have]] + '개 <button class="chip sm" data-ruse="' + esc(ITEM_EN[have]) + '">사용함 (−1)</button></div>';
+    return '<div class="note warn"><b>' + itemT(v.item) + '</b>이(가) 가방에 없습니다.</div>';
+  }
+  // 분석 결과 → 캡처 위 표시(calls) + 위/아래 패널 + 캐릭터 대사
   function hudBuild() {
     const I = HUD.info; if (!I) return; I.calls = []; I.ask = false; I.top = ''; I.bottom = ''; const zs = zones[I.screen] || []; const zone = role => zs.find(z => z.role === role);
     const LEN = ['짧은', '중간', '긴'];
     if (!I.screen) { I.say = '어이쿠, 이 늙은이 눈이 침침해서 말입니다, 히히… 무슨 화면인지 통 모르겠습니다. 주인님께서 친히 위에서 골라 주시지요.'; return; }
     if (I.screen === 'hero') {
-      const h = I.hero; if (!h) { I.ask = 'hero'; I.say = '흐음, 뉘신지 알아볼 수가 없군요. 어차피 오래 못 볼 얼굴들이라 그런가… 크흠, 위에서 골라 주시지요.'; return; }
+      const h = I.hero; if (!h) { I.ask = 'hero'; I.say = '흐음, 뉘신지 알아볼 수가 없군요. 어차피 오래 못 볼 얼굴들이라 그런가… 크흠, 위에서 골라 주시지요.'; I.bottom = heroRoster(); return; }
+      if (!session.heroes.includes(h)) { session.heroes.push(h); if (session.heroes.length > 4) session.heroes.shift(); saveSession(); }
       const g = HERO_GUIDE[h], b = g.builds[0];
       I.top = '<div class="row"><h2 class="hudh">' + heroT(h) + '</h2><span class="tag gold">' + esc(g.role) + '</span>' + g.pos.map(p => '<span class="tag">' + p + '열</span>').join('') + '</div><p>' + esc(g.summary) + '</p>';
-      I.bottom = '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div></div>';
-      I.calls.push({ x: 0.5, y: 0.3, cls: 'card ok', html: '<b>추천 스킬</b><br>' + b.skills.map(k => esc(koOf(k, (SKILL[h + '|' + k] || {}).ko))).join(' · ') });
-      I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히. 쓸 만한 기술과 장신구는 아래에 적어 두었습니다.'; return;
+      I.bottom = heroRoster() + '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div></div>';
+      I.calls.push({ x: 0.5, y: 0.3, kind: 'card', tone: 'ok', title: '권장 기술', lines: [b.skills.map(k => koOf(k, (SKILL[h + '|' + k] || {}).ko)).join(' · ')] });
+      I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히.' + (session.heroes.length >= 4 ? ' 넷을 다 보셨으니 일행 점검을 아래에 적어 두었습니다.' : ' 일행을 한 명씩 보여 주시면 제가 짝을 맞춰 보지요.'); return;
     }
     if (I.screen === 'dungeon') {
       const c = I.curio && CURIOS.find(x => x.en === I.curio);
-      if (!c) { I.say = '이름이 보이질 않는군요, 주인님. 마우스를 올려 이름을 띄우신 뒤 다시 부르시든가… 귀찮으시면 아래에서 직접 고르시지요, 히히.'; I.bottom = '<p class="dim">아래에서 직접 고를 수도 있습니다.</p><div class="cgrid">' + CURIOS.filter(x => x.dg === (ctx.dg || run.dg) || x.dg === 'all').map(x => '<button class="ctile" data-hcurio="' + esc(x.en) + '"><span class="cimg">' + pic(x.img, 160, '') + '</span><span class="cname">' + esc(koOf(x.en, x.ko)) + '</span></button>').join('') + '</div>'; return; }
+      const inv = '<div class="invline">' + RUN_ITEMS.map(k => { const p = PROV[k], n = run.inv[k] || 0; return '<span class="iv' + (n ? '' : ' zero') + '">' + pic(p.img, 0, 'ico sm') + '<button data-rinv="' + esc(k) + '" data-d="-1" aria-label="' + esc(p.ko) + ' 줄이기">−</button><b>' + n + '</b><button data-rinv="' + esc(k) + '" data-d="1" aria-label="' + esc(p.ko) + ' 늘리기">+</button></span>'; }).join('') + '</div>';
+      if (!c) { I.say = '이름이 보이질 않는군요, 주인님. 마우스를 올려 이름을 띄우신 뒤 다시 부르시든가… 귀찮으시면 아래에서 직접 고르시지요, 히히.'; I.bottom = inv + '<div class="cgrid">' + CURIOS.filter(x => x.dg === (ctx.dg || run.dg) || x.dg === 'all').map(x => '<button class="ctile" data-hcurio="' + esc(x.en) + '"><span class="cimg">' + pic(x.img, 160, '') + '</span><span class="cname">' + esc(koOf(x.en, x.ko)) + '</span></button>').join('') + '</div>'; return; }
+      if (I.logged !== c.en) { I.logged = c.en; session.curios.push(c.en); if (session.curios.length > 30) session.curios.shift(); saveSession(); }
       const v = verdict(c); const act = v.item ? itemT2(v.item) + ' 사용' : v.text; const b = zone('info') || zone('curio') || findBox(I.det, wordsOf(c.en.replace(/\s*\(.*\)/, ''), c.ko));
-      I.calls.push({ x: b ? b.x : 0.4, y: b ? b.y + (b.h || 0) + 0.015 : 0.3, cls: 'card ' + v.cls, html: '<b>' + esc(koOf(c.en, c.ko)) + '</b><br>' + esc(act) });
-      I.top = '<div class="row"><h2 class="hudh">' + T(c.en, c.ko) + '</h2><span class="verdict ' + v.cls + '">' + esc(act) + '</span></div>'; I.bottom = curioCard(c);
+      I.calls.push({ x: b ? b.x : 0.4, y: b ? b.y + (b.h || 0) + 0.02 : 0.3, kind: 'card', tone: v.cls, title: koOf(c.en, c.ko), lines: [act], ax: b ? b.x + (b.w || 0) / 2 : null, ay: b ? b.y + (b.h || 0) / 2 : null });
+      I.top = '<div class="row"><h2 class="hudh">' + T(c.en, c.ko) + '</h2><span class="verdict ' + v.cls + '">' + esc(act) + '</span></div>'; I.bottom = invBanner(c) + inv + curioCard(c) + (session.curios.length > 1 ? '<p class="small dim">이번 원정에서 만난 기물 ' + session.curios.length + '개</p>' : '');
       I.say = koOf(c.en, c.ko) + '이옵니다, 주인님. ' + (v.item ? itemT2(v.item) + '을(를) 쓰시지요.' + (v.handBad ? ' 맨손으로 덥석 만지셨다간… 뭐, 저야 구경거리가 생겨 좋습니다만. 히히.' : ' 설마 그걸 안 챙겨 오신 건 아니겠지요?') : v.cls === 'no' ? '손대지 마시지요. 물론 주인님께서 제 말을 들으실 분은 아니지만… 히히히.' : v.cls === 'gamble' ? '운에 맡기는 물건이옵니다. 주인님의 운이야 제가 익히 알지요… 크흠, 알아서 하십시오.' : '맨손으로 뒤지셔도 됩니다. 이번만큼은 손가락이 무사할 겁니다, 아마도요.');
       if (c.dg !== 'all') { ctx.dg = c.dg; store.set('dd.ctx', ctx); } return;
     }
-    if (I.screen === 'map') {   // 던전 이름표마다 한 줄 요약을 붙인다 (누르면 그 던전 선택)
-      DUNGEONS.forEach(d => { const b = findBox(I.det, wordsOf(d.en, d.ko, d.alt).concat(d.id === 'courtyard' ? ['courtyard'] : [])) || zone('tag:' + d.id); if (!b) return;
-        I.calls.push({ x: b.x, y: b.y + b.h + 0.004, cls: 'tagc' + (I.dg === d.id ? ' on' : ''), attr: 'data-hdg="' + d.id + '"', html: '<b>' + esc(koOf(d.en, d.ko)) + '</b> ' + DG_SHORT[d.id] }); });
-    }
+    if (I.screen === 'map') DUNGEONS.forEach(d => { const b = findBox(I.det, wordsOf(d.en, d.ko, d.alt).concat(d.id === 'courtyard' ? ['courtyard'] : [])) || zone('tag:' + d.id); if (!b) return;
+      I.calls.push({ x: b.x, y: b.y + b.h + 0.006, kind: 'tag', dg: d.id, on: I.dg === d.id, title: koOf(d.en, d.ko), sub: DG_SHORT[d.id] }); });
     const dg = I.dg || (I.screen === 'provision' ? ctx.dg : null); const len = I.len != null ? I.len : (ctx.len != null ? ctx.len : 0);
     if (!dg || !DG[dg]) { I.ask = 'dg'; I.say = I.screen === 'map' ? '지도에서 어디를 찍으셨는지 이 늙은이가 무슨 수로 압니까, 히히. 이름표나 위의 단추를 눌러 일러 주시지요.' : '그래서 이번엔 어디로 영웅들을 보내… 아니, 떠나시렵니까, 주인님?'; I.top = '<p class="dim">던전을 고르면 여기에 요약이 나옵니다.</p>'; return; }
     const d = DG[dg]; ctx = { dg, len }; store.set('dd.ctx', ctx); I.dg = dg; I.len = len; bld.dg = dg;
     const tags = '<div class="chips">' + d.dmg.good.map(x => '<span class="tag good">' + esc(x) + '</span>').join('') + d.dmg.bad.map(x => '<span class="tag bad">✕ ' + esc(x) + '</span>').join('') + '</div>';
+    const qty = k => (d.provisions[k] || [0, 0, 0])[len] || (k === 'Laudanum' ? [0, 1, 2][len] : 0);
     if (I.screen === 'provision') {
-      PROV9.forEach(k => { const n = (d.provisions[k] || [k === 'Laudanum' ? (len ? 1 : 0) : 0, k === 'Laudanum' ? 1 : 0, k === 'Laudanum' ? 2 : 0])[len]; const z = zone('item:' + k); if (z) I.calls.push({ x: z.x + z.w / 2, y: z.y, cls: 'badge center ' + (n ? 'use' : 'off'), html: n ? '×' + n : '–' }); });
-      I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + ' · ' + LEN[len] + ' 원정 보급품</h2></div><div class="provrow">' + PROV9.map(k => { const n = (d.provisions[k] || [0, 0, 0])[len] || (k === 'Laudanum' ? [0, 1, 2][len] : 0); const p = PROV[k]; return '<span class="pv' + (n ? '' : ' zero') + '">' + pic(p.img, 0, 'ico') + '<b>' + (n ? '×' + n : '–') + '</b><small>' + esc(koOf(p.en, p.ko)) + '</small></span>'; }).join('') + '</div>';
-      I.bottom = '<div class="two"><div class="card"><h3>챙길 이유</h3>' + ul(d.tips) + '</div><div class="card"><h3>먼저 잡을 적</h3>' + ul(d.threats) + '</div></div>';
+      PROV9.forEach(k => { const n = qty(k); const z = zone('item:' + k); if (z) I.calls.push({ x: z.x + z.w / 2, y: z.y, kind: 'badge', tone: n ? 'use' : 'off', title: n ? '×' + n : '–', cell: z }); });
+      I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + ' · ' + LEN[len] + ' 원정 보급품</h2></div><div class="provrow">' + PROV9.map(k => { const n = qty(k); const p = PROV[k]; return '<span class="pv' + (n ? '' : ' zero') + '">' + pic(p.img, 0, 'ico') + '<b>' + (n ? '×' + n : '–') + '</b><small>' + esc(koOf(p.en, p.ko)) + '</small></span>'; }).join('') + '</div>';
+      I.bottom = '<div class="row" style="margin-bottom:10px"><button class="chip' + (session.prov ? '' : ' on') + '" data-hud="fillbag">' + (session.prov ? '가방 수량 다시 맞추기' : '이 수량으로 가방 기록하기') + '</button><span class="small dim">기록해 두면 탐험 중 기물 안내가 "지금 가진 것" 기준으로 바뀝니다.</span></div><div class="two"><div class="card"><h3>챙길 이유</h3>' + ul(d.tips) + '</div><div class="card"><h3>먼저 잡을 적</h3>' + ul(d.threats) + '</div></div>';
       I.say = koOf(d.en, d.ko) + ', ' + LEN[len] + ' 원정이시라… 용감도 하셔라, 히히. 칸마다 수량을 적어 두었으니 금화 아끼지 마시지요. ' + (DG_BUTLER[dg] || ''); return;
     }
     const party = PARTIES.find(p => p.id === d.parties[0]);
@@ -787,28 +809,84 @@
     I.bottom = (party ? partyCard(party, false) : '') + '<p class="small"><a href="#/parties?tag=' + dg + '">→ 다른 추천 파티</a> · <a href="#/plan/' + dg + '/' + len + '">→ 원정 준비</a></p>';
     I.say = koOf(d.en, d.ko) + '(으)로 가시겠다고요? 히히… 훌륭한 선택이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 데려갈 일행은 아래에 펼쳐 두었습니다. 몇이나 돌아올지 내기라도 하시렵니까?';
   }
+  function heroRoster() {   // 이번 원정에서 확인한 영웅과 일행 점검
+    const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
+    const { A, slots } = checkHeroes(hs, ctx.dg);
+    let o = '<div class="card roster"><div class="row"><h3>이번 원정 일행 (' + hs.length + '/4)</h3><button class="chip sm" data-hud="tobuilder">편성기에서 다듬기</button><button class="chip sm" data-hud="clearheroes">비우기</button></div><div class="rline">' + slots.map((h, i) => '<div class="rs">' + (h ? '<span class="port">' + pic(HERO_DATA[h].img, 120, '') + '</span><b>' + esc(heroKo(h)) + '</b>' : '<span class="port"></span><b class="dim">?</b>') + '<small>' + (4 - i) + '열</small></div>').join('') + '</div>';
+    if (hs.length >= 2) o += A.warn.concat(hs.length >= 4 ? A.notes : []).slice(0, 4).map(x => '<div class="chk ' + (A.warn.includes(x) ? 'bad' : 'mid') + '">' + (A.warn.includes(x) ? '✕ ' : '△ ') + esc(x) + '</div>').join('') + (hs.length >= 4 && !A.warn.length ? '<div class="chk ok">✓ 큰 문제는 보이지 않습니다.</div>' : '');
+    return o + '</div>';
+  }
 
   V.hud = function () {
-    const I = HUD.info; const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : null); const es = scr || 'provision';
-    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a>' + SCREENS.map(([v, l]) => '<button class="chip sm' + (HUD.screen === v ? ' on' : '') + (v !== 'auto' && scr === v && HUD.screen === 'auto' ? ' cur' : '') + '" data-hscreen="' + v + '">' + l + '</button>').join('') + '<span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
-    if (I && scr !== 'dungeon' && scr !== 'hero' && scr) o += '<div class="hudbar">' + (I.ask === 'dg' ? '<b class="askb">던전 선택 ▸</b>' : '') + DUNGEONS.map(d => '<button class="chip sm' + (I.dg === d.id ? ' on' : '') + '" data-hdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '<span class="sep"></span>' + ['짧은', '중간', '긴'].map((l, i) => '<button class="chip sm' + (I.len === i ? ' on' : '') + '" data-hlen="' + i + '">' + l + '</button>').join('') + '</div>';
+    const I = HUD.info; if (I && I.screen) hudBuild();
+    const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : null); const es = scr || 'provision';
+    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a><span class="sep"></span><div class="steps">' + STAGES.map(([v, l], i) => '<button class="step' + (scr === v ? ' cur' : '') + (stageDone(v) ? ' done' : '') + (HUD.screen === v ? ' pin' : '') + '" data-hscreen="' + v + '" title="' + (HUD.screen === v ? '이 화면으로 고정됨 (다시 누르면 자동 판단)' : '눌러서 이 화면으로 고정') + '"><i>' + (stageDone(v) ? '✓' : i + 1) + '</i>' + l + '</button>').join('<span class="stepline"></span>') + '</div><span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="newrun">새 원정</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
+    if (I && (scr === 'map' || scr === 'provision')) o += '<div class="hudbar">' + (I.ask === 'dg' ? '<b class="askb">던전 선택 ▸</b>' : '') + DUNGEONS.map(d => '<button class="chip sm' + (I.dg === d.id ? ' on' : '') + '" data-hdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '<span class="sep"></span>' + ['짧은', '중간', '긴'].map((l, i) => '<button class="chip sm' + (I.len === i ? ' on' : '') + '" data-hlen="' + i + '">' + l + '</button>').join('') + '</div>';
     if (I && scr === 'hero') o += '<div class="hudbar">' + (I.ask === 'hero' ? '<b class="askb">영웅 선택 ▸</b>' : '') + Object.keys(HERO_GUIDE).map(h => '<button class="chip sm' + (I.hero === h ? ' on' : '') + '" data-hhero="' + esc(h) + '">' + esc(heroKo(h)) + '</button>').join('') + '</div>';
-    if (HUD.edit) o += '<div class="hudbar"><b>' + (SCREENS.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
-    o += '<div class="hudpanel top">' + (I && I.top && scr ? '<div class="eyebrow">' + ({ map: '원정 선택 화면', provision: '보급품 구매 화면', hero: '영웅 정보 화면', dungeon: '탐험 중' }[scr] || '') + '</div>' : '') + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처가 없습니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결해 인식하거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>')) + '</div>';
-    o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls">' + (!HUD.edit && I ? I.calls.map((c, i) => '<div class="call ' + c.cls + '" ' + (c.attr || '') + ' style="left:' + (c.x * 100).toFixed(2) + '%;top:' + (c.y * 100).toFixed(2) + '%;animation-delay:' + (i * 40) + 'ms">' + c.html + '</div>').join('') : '') + '</div></div></div>';
-    o += '<div class="hudpanel bottom"><div class="mascot"><div class="mwrap"><span class="mshadow"></span><div class="mimg" tabindex="0" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div></div><div class="mtools"><button class="chip sm' + (HUD.pickM ? ' on' : '') + '" data-hud="pickm">' + (HUD.pickM ? '캡처 위를 드래그하세요' : '캡처에서 따오기') + '</button></div><div class="bubble" id="hudsay">' + esc((I && I.say) || '오셨습니까, 주인님. 화면을 보여 주시면 이 늙은이가 필요한 것만 짚어 드리지요. 히히…') + '</div></div>' + ((I && I.bottom) || '') + '</div></div>';
+    if (HUD.edit) o += '<div class="hudbar"><b>' + (STAGES.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
+    o += '<div class="hudpanel top">' + (I && I.top && scr ? '<div class="eyebrow">' + ({ map: '원정 선택 화면', provision: '보급품 구매 화면', hero: '영웅 정보 화면', dungeon: '탐험 중' }[scr] || '') + (ctx.dg && scr !== 'map' && DG[ctx.dg] ? ' · ' + esc(koOf(DG[ctx.dg].en, DG[ctx.dg].ko)) : '') + '</div>' : '') + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처가 없습니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결한 뒤 단축키를 누르거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>')) + '</div>';
+    o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls"></div></div></div>';
+    o += '<div class="hudpanel bottom"><div class="mascot"><div class="mwrap"><span class="mshadow"></span><div class="mimg" tabindex="0" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div></div><div class="mtools"><button class="chip sm' + (HUD.pickM ? ' on' : '') + '" data-hud="pickm">' + (HUD.pickM ? '캡처 위를 드래그하세요' : '캡처에서 따오기') + '</button></div><div class="bubble" id="hudsay">' + esc((I && I.say) || '오셨습니까, 주인님. 화면을 보여 주시면 이 늙은이가 필요한 것만 짚어 드리지요. 히히…') + '</div></div>' + ((I && I.bottom) || (scr === 'hero' ? heroRoster() : '')) + '</div></div>';
     return o;
   };
   async function hudMount() {
     const el = $('#hudstage'); if (!el) return;
-    if (!window.Konva) { try { await loadScript(new URL('vendor/konva/konva.min.js', location.href.split('#')[0]).href); } catch (e) { return; } }
-    const sc = $('#hudscene'); if (!sc) return; const src = OCR.last; const ar = src ? src.height / src.width : 9 / 16;
-    let W = window.innerWidth, H = W * ar; const maxH = window.innerHeight * (window.innerHeight > window.innerWidth ? 0.5 : 0.6); if (H > maxH) { H = maxH; W = H / ar; }
+    const base = new URL('vendor/', location.href.split('#')[0]).href;
+    try { if (HUD.edit) { if (!window.Konva) await loadScript(base + 'konva/konva.min.js'); } else if (!window.PIXI) await loadScript(base + 'pixi/pixi.min.js'); } catch (e) { /* 아래에서 대체 표시 */ }
+    const sc = $('#hudscene'); if (!sc || !$('#hudstage')) return; const src = OCR.last; const ar = src ? src.height / src.width : 9 / 16;
+    let W = window.innerWidth, H = W * ar; const maxH = window.innerHeight * (window.innerHeight > window.innerWidth ? 0.5 : 0.6); if (H > maxH) { H = maxH; W = H / ar; } W = Math.round(W); H = Math.round(H);
     const d3 = $('#hud3d'); d3.style.width = W + 'px'; d3.style.height = H + 'px';
-    if (HUD.stage) HUD.stage.destroy(); HUD.stage = new Konva.Stage({ container: 'hudstage', width: W, height: H }); HUD.layer = new Konva.Layer(); HUD.stage.add(HUD.layer); hudDraw();
+    if (HUD.stage) { HUD.stage.destroy(); HUD.stage = null; } if (HUD.app) { try { HUD.app.destroy(true, { children: true }); } catch (e) { /* 무시 */ } HUD.app = null; }
+    if (HUD.edit && window.Konva) { HUD.stage = new Konva.Stage({ container: 'hudstage', width: W, height: H }); HUD.layer = new Konva.Layer(); HUD.stage.add(HUD.layer); hudDraw(); }
+    else { let ok = false; if (window.PIXI) { try { pixiScene(W, H); ok = true; } catch (e) { ok = false; } } if (!ok) domScene(W, H); }
     const say = $('#hudsay'); clearInterval(HUD.typer);
     if (say && HUD.fresh) { const full = say.textContent; let n = 0; say.style.minHeight = say.offsetHeight + 'px'; say.textContent = ''; HUD.typer = setInterval(() => { n += 2; say.textContent = full.slice(0, n); if (n >= full.length) clearInterval(HUD.typer); }, 16); }
     HUD.fresh = false;
+  }
+  // WebGL을 쓸 수 없을 때의 대체 표시 (캡처 그림 + HTML 표시)
+  function domScene(W, H) {
+    const host = $('#hudstage'); host.innerHTML = ''; if (OCR.last) { const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(OCR.last, 0, 0, W, H); host.appendChild(c); }
+    const I = HUD.info; if (!I) return;
+    $('#hudcalls').innerHTML = I.calls.map(c => c.kind === 'badge' ? '<div class="call badge center ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%">' + esc(c.title) + '</div>' : c.kind === 'tag' ? '<div class="call tagc' + (c.on ? ' on' : '') + '" data-hdg="' + c.dg + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b> ' + esc(c.sub) + '</div>' : '<div class="call card ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b><br>' + c.lines.map(esc).join('<br>') + '</div>').join('');
+  }
+  // 캔버스 장면 (PixiJS, WebGL): 캡처 + 강조 칸 + 떠 있는 표시 + 불티. 마우스를 따라 층마다 다르게 움직여 깊이감을 준다.
+  function pixiScene(W, H) {
+    const host = $('#hudstage'); host.innerHTML = ''; const P = window.PIXI; const I = HUD.info, src = OCR.last;
+    const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+    const app = new P.Application({ width: W, height: H, backgroundAlpha: 0, antialias: true, resolution: Math.min(2, window.devicePixelRatio || 1), autoDensity: true }); host.appendChild(app.view); HUD.app = app;
+    const bgL = new P.Container(), fxL = new P.Container(), callL = new P.Container(); app.stage.addChild(bgL, fxL, callL);
+    if (src) { const sp = new P.Sprite(P.Texture.from(src)); sp.width = W * 1.03; sp.height = H * 1.03; sp.position.set(-W * 0.015, -H * 0.015); bgL.addChild(sp); }
+    bgL.addChild(new P.Graphics().beginFill(0x000000, src ? 0.34 : 0).drawRect(-W * 0.05, -H * 0.05, W * 1.1, H * 1.1).endFill());
+    const F = Math.max(11, Math.round(W / 88)); const font = 'Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
+    const TONEC = { use: 0x6fae5c, ok: 0xd6a64a, no: 0xd0584a, gamble: 0xa98bd0, off: 0x5c5248 };
+    const txt = (s, size, fill, bold, wrap) => new P.Text(s, { fontFamily: font, fontSize: size, fill, fontWeight: bold ? '800' : '500', wordWrap: !!wrap, wordWrapWidth: wrap || 0, breakWords: true, lineHeight: Math.round(size * 1.4) });
+    const items = [], pulses = [];
+    (I ? I.calls : []).forEach((c, i) => {
+      const g = new P.Container(); const col = TONEC[c.tone] || 0xd6a64a; let w, h; const bg = new P.Graphics(); g.addChild(bg);
+      if (c.kind === 'badge') {
+        const t = txt(c.title, F * 1.55, c.tone === 'off' ? 0x8a8073 : 0xeaf6e4, true); const px = F * 0.55, py = F * 0.12; w = t.width + px * 2; h = t.height + py * 2; t.position.set(px, py); g.addChild(t);
+        bg.lineStyle(2, col, 1).beginFill(c.tone === 'off' ? 0x161310 : 0x11160f, 0.96).drawRoundedRect(0, 0, w, h, F * 0.5).endFill(); g.cx = c.x * W; g.cy = c.y * H - h * 0.15;
+        if (c.cell && c.tone !== 'off') { const r = new P.Graphics().lineStyle(2, col, 0.9).drawRoundedRect(c.cell.x * W, c.cell.y * H, c.cell.w * W, c.cell.h * H, 4); fxL.addChild(r); pulses.push({ r, ph: i * 0.6 }); }
+      } else if (c.kind === 'tag') {
+        const t = txt(c.title, F * 0.95, 0xe9e1d3, true), s = txt(c.sub, F * 0.9, c.on ? 0xe9e1d3 : 0xa79b89, false); const px = F * 0.5, py = F * 0.15; t.position.set(px, py); s.position.set(px + t.width + F * 0.45, py + (t.height - s.height) / 2); g.addChild(t, s); w = s.x + s.width + px; h = t.height + py * 2;
+        bg.lineStyle(c.on ? 2 : 1, c.on ? 0xd6a64a : 0x4a3d31, 1).beginFill(c.on ? 0x2a1f10 : 0x14100e, 0.94).drawRoundedRect(0, 0, w, h, F * 0.4).endFill(); g.cx = c.x * W + w / 2; g.cy = c.y * H + h / 2;
+        g.eventMode = 'static'; g.cursor = 'pointer'; g.on('pointertap', () => { I.dg = c.dg; ctx.dg = c.dg; hudBuild(); render(true); });
+      } else {
+        const cw = Math.min(W * 0.36, F * 28); const t = txt(c.title, F * 1.15, col, true, cw), b = txt(c.lines.join('\n'), F * 1.0, 0xe9e1d3, false, cw); const p = F * 0.7; t.position.set(p, p * 0.8); b.position.set(p, t.y + t.height + F * 0.2); g.addChild(t, b); w = Math.max(t.width, b.width) + p * 2; h = b.y + b.height + p * 0.8;
+        bg.lineStyle(1.5, 0x57483a, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, h, F * 0.55).endFill(); g.cx = Math.min(W - w / 2 - 6, Math.max(w / 2 + 6, c.x * W + w / 2)); g.cy = Math.min(H - h / 2 - 6, Math.max(h / 2 + 6, c.y * H + h / 2));
+        if (c.ax != null) { const ln = new P.Graphics().lineStyle(2, col, 0.85).moveTo(c.ax * W, c.ay * H).lineTo(g.cx, g.cy - h / 2).beginFill(col).drawCircle(c.ax * W, c.ay * H, 4).endFill(); fxL.addChild(ln); }
+      }
+      g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still ? 1 : 0; callL.addChild(g); items.push({ g, d: i * 0.045, ph: i * 1.3 });
+    });
+    const embers = []; if (!still && src) for (let k = 0; k < 34; k++) { const e = new P.Graphics().beginFill(0xffa040).drawCircle(0, 0, 1 + Math.random() * 1.6).endFill(); e.blendMode = P.BLEND_MODES.ADD; fxL.addChild(e); embers.push({ e, x: Math.random() * W, y: Math.random() * H, v: 8 + Math.random() * 22, sw: Math.random() * 6, life: Math.random() }); }
+    HUD.par = HUD.par || { x: 0, y: 0 }; const cur = { x: 0, y: 0 }; let t = 0;
+    if (still) return;
+    app.ticker.add(() => { const dt = app.ticker.deltaMS / 1000; t += dt;
+      cur.x += (HUD.par.x - cur.x) * 0.12; cur.y += (HUD.par.y - cur.y) * 0.12; bgL.position.set(-cur.x * 10, -cur.y * 7); fxL.position.set(cur.x * 4, cur.y * 3); callL.position.set(cur.x * 18, cur.y * 12);
+      items.forEach(o => { const p = Math.min(1, Math.max(0, (t - o.d) / 0.3)); const e = 1 - Math.pow(1 - p, 3); o.g.alpha = e; o.g.scale.set(1.25 - 0.25 * e); o.g.y = o.g.cy + Math.sin(t * 1.4 + o.ph) * 1.5 + (1 - e) * 12; });
+      pulses.forEach(o => { o.r.alpha = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.4 + o.ph)); });
+      embers.forEach(o => { o.life += dt * 0.12; if (o.life > 1) { o.life = 0; o.x = Math.random() * W; o.y = H + 4; } o.y -= o.v * dt; o.e.position.set(o.x + Math.sin(t + o.sw) * 8, o.y); o.e.alpha = Math.sin(o.life * Math.PI) * 0.7; if (o.y < -6) { o.y = H + 4; o.life = 0; } });
+    });
   }
   function hudDraw() {
     const st = HUD.stage, L = HUD.layer; if (!st) return; L.destroyChildren(); const W = st.width(), H = st.height(); const src = OCR.last; const F = Math.max(11, Math.round(W / 90));
@@ -832,12 +910,12 @@
   document.addEventListener('pointermove', e => { if (!mdrag) return; const cl = v => Math.min(1, Math.max(0, v)); const x = cl((e.clientX - mdrag.b.left) / mdrag.b.width), y = cl((e.clientY - mdrag.b.top) / mdrag.b.height); mdrag.r = { x: Math.min(x, mdrag.x0), y: Math.min(y, mdrag.y0), w: Math.abs(x - mdrag.x0), h: Math.abs(y - mdrag.y0) }; mdrag.box.style.cssText = 'left:' + mdrag.r.x * 100 + '%;top:' + mdrag.r.y * 100 + '%;width:' + mdrag.r.w * 100 + '%;height:' + mdrag.r.h * 100 + '%'; });
   document.addEventListener('pointerup', () => { if (!mdrag) return; const r = mdrag.r; mdrag.box.remove(); mdrag = null; if (!r || r.w < 0.02 || r.h < 0.02 || !OCR.last) return; const src = OCR.last; const sw = r.w * src.width, sh = r.h * src.height; const sc = Math.min(3, 480 / Math.max(sw, sh)); const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc); const c = cv.getContext('2d'); c.imageSmoothingQuality = 'high'; c.drawImage(src, r.x * src.width, r.y * src.height, sw, sh, 0, 0, cv.width, cv.height); store.set('dd.mascot', cv.toDataURL('image/png')); HUD.pickM = false; render(true); });
   // 3D 기울임: 마우스를 따라 캡처 판이 기울고 말풍선은 앞으로 떠 보인다
-  document.addEventListener('pointermove', e => { const s = e.target.closest && e.target.closest('#hudscene'); const d3 = $('#hud3d'); if (!d3 || HUD.edit || HUD.pickM) { if (d3 && HUD.pickM) d3.style.transform = 'none'; return; } if (!s) { d3.style.transform = ''; return; }
-    const b = d3.getBoundingClientRect(); const x = (e.clientX - b.left) / b.width - 0.5, y = (e.clientY - b.top) / b.height - 0.5; d3.classList.remove('enter'); d3.style.transform = 'rotateX(' + (-y * 9).toFixed(2) + 'deg) rotateY(' + (x * 12).toFixed(2) + 'deg)'; });
+  document.addEventListener('pointermove', e => { const s = e.target.closest && e.target.closest('#hudscene'); const d3 = $('#hud3d'); if (!d3 || HUD.edit || HUD.pickM) { if (d3 && HUD.pickM) d3.style.transform = 'none'; return; } if (!s) { d3.style.transform = ''; HUD.par = { x: 0, y: 0 }; return; }
+    const b = d3.getBoundingClientRect(); const x = (e.clientX - b.left) / b.width - 0.5, y = (e.clientY - b.top) / b.height - 0.5; HUD.par = { x, y }; d3.classList.remove('enter'); d3.style.transform = 'rotateX(' + (-y * 9).toFixed(2) + 'deg) rotateY(' + (x * 12).toFixed(2) + 'deg)'; });
   document.addEventListener('click', e => {
     const t = e.target.closest('[data-hscreen],[data-hud],[data-hdg],[data-hlen],[data-hhero],[data-hcurio]'); if (!t) return; const d = t.dataset; const I = HUD.info;
     const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : 'provision');
-    if (d.hscreen != null) { HUD.screen = d.hscreen; store.set('dd.hudScreen', HUD.screen); HUD.sel = null; if (OCR.last) { hudRun(); return; } }
+    if (d.hscreen != null) { HUD.screen = HUD.screen === d.hscreen ? 'auto' : d.hscreen; store.set('dd.hudScreen', HUD.screen); HUD.sel = null; if (OCR.last) { hudRun(); return; } }
     else if (d.hdg != null && I) { I.dg = d.hdg; ctx.dg = d.hdg; hudBuild(); }
     else if (d.hlen != null && I) { I.len = +d.hlen; ctx.len = I.len; hudBuild(); }
     else if (d.hhero != null && I) { I.hero = d.hhero; hudBuild(); }
@@ -845,6 +923,10 @@
     else if (d.hud === 'rescan') { hudRun(); return; }
     else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
     else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
+    else if (d.hud === 'newrun') { if (!confirm('이번 원정 기록(던전, 확인한 영웅, 만난 기물)을 지우고 새로 시작할까요?')) return; session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.screen = 'auto'; }
+    else if (d.hud === 'fillbag' && I && I.dg) { const dgd = DG[I.dg]; run.dg = I.dg; run.inv = {}; PROV9.forEach(k => { run.inv[k] = (dgd.provisions[k] || [0, 0, 0])[I.len || 0] || (k === 'Laudanum' ? [0, 1, 2][I.len || 0] : 0); }); saveRun(); session.prov = true; saveSession(); }
+    else if (d.hud === 'clearheroes') { session.heroes = []; saveSession(); }
+    else if (d.hud === 'tobuilder') { const sl = partyFromHeroes(session.heroes); bld = { slots: sl.map((h, i) => h ? { hero: h, skills: defaultSkills(h, 4 - i) } : null), active: Math.max(0, sl.indexOf(null)), dg: ctx.dg || '' }; saveBld(); location.hash = '#/builder'; return; }
     else if (d.hud === 'pickm') { if (!OCR.last) { alert('먼저 화면을 캡처하세요.'); return; } HUD.pickM = !HUD.pickM; HUD.edit = false; }
     else if (d.hud === 'mascot') { if (store.get('dd.mascot', null) && confirm('기본 캐릭터로 되돌릴까요? (취소를 누르면 다른 그림을 고릅니다)')) { store.set('dd.mascot', null); render(true); return; }
       const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = () => { const f = inp.files[0]; if (!f) return; const img = new Image(); img.onload = () => { const sc = Math.min(1, 480 / Math.max(img.naturalWidth, img.naturalHeight)); const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * sc); cv.height = Math.round(img.naturalHeight * sc); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); store.set('dd.mascot', cv.toDataURL('image/png')); render(true); }; img.src = URL.createObjectURL(f); }; inp.click(); return; }
@@ -853,7 +935,6 @@
     else if (d.hud === 'reset') { if (!confirm('이 화면의 영역을 기본값으로 되돌릴까요?')) return; zones[scr] = JSON.parse(JSON.stringify(DEFAULT_ZONES[scr] || [])); saveZones(); }
     else if (d.hud === 'export') { prompt('영역 정보입니다. 복사해 보관하거나 공유하세요.', JSON.stringify(zones, (k, v) => k === '_read' ? undefined : (typeof v === 'number' ? Math.round(v * 10000) / 10000 : v))); return; }
     else if (d.hud === 'import') { const s = prompt('내보낸 영역 정보를 붙여 넣으세요.'); if (!s) return; try { const o = JSON.parse(s); if (o && typeof o === 'object') { zones = Object.assign(JSON.parse(JSON.stringify(DEFAULT_ZONES)), o); saveZones(); } } catch (err) { alert('형식이 올바르지 않습니다.'); return; } }
-    if (I && HUD.edit === false && d.hud === 'edit') hudBuild();
     render(true);
   });
   async function hudRun() { if (HUD.busy || !OCR.last) { render(true); return; } HUD.busy = true; OCR.status = '분석 중…'; dock(); try { await hudAnalyze(); OCR.status = '오버레이 갱신됨'; } catch (e) { OCR.status = '분석 실패: ' + e.message; } HUD.busy = false; dock(); render(true); }

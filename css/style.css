@@ -368,3 +368,26 @@ main:has(.runwrap){max-width:1560px}
 .hudpanel.bottom .slot{background:var(--h-fill);border-color:var(--h-line)}
 .hudpanel.bottom .curio{max-width:560px}
 @media (prefers-reduced-motion:reduce){.hud3d,.hud3d.enter,.call,.mimg,.askb{animation:none!important;transition:none!important}}
+
+/* 원정 단계 표시와 세션 */
+.steps{display:flex;align-items:center;gap:0}
+.step{display:flex;align-items:center;gap:6px;padding:4px 10px;border:1px solid transparent;border-radius:6px;background:none;color:var(--faint);font-size:var(--t-sm);cursor:pointer}
+.step i{font-style:normal;width:18px;height:18px;border-radius:50%;border:1px solid currentColor;display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700}
+.step.done{color:var(--dim)}.step.done i{background:var(--good);border-color:var(--good);color:#0c1109}
+.step.cur{color:var(--ink);background:var(--h-fill)}.step.cur i{border-color:var(--gold);color:var(--gold)}.step.cur.done i{color:#0c1109}
+.step.pin{border-color:var(--gold)}
+.step:hover{color:var(--ink)}
+.stepline{width:16px;height:1px;background:var(--h-line)}
+#hudstage canvas{display:block}
+.roster{margin-bottom:12px}
+.rline{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:8px;max-width:520px;margin:8px 0}
+.rs{display:flex;flex-direction:column;align-items:center;gap:2px;padding:6px 4px;border:1px solid var(--h-line);border-radius:8px;background:var(--h-fill)}
+.rs .port{width:44px;height:50px;border-radius:6px;overflow:hidden;background:#0d0a09}
+.rs .port img{width:100%;height:100%;object-fit:cover;object-position:top}
+.rs b{font-size:var(--t-sm)}.rs small{font-size:var(--t-xs);color:var(--gold)}
+.invline{display:flex;flex-wrap:wrap;gap:6px;margin:8px 0 12px}
+.iv{display:flex;align-items:center;gap:3px;padding:3px 6px;border:1px solid var(--h-line);border-radius:8px;background:var(--h-fill)}
+.iv.zero{opacity:.5}
+.iv b{min-width:20px;text-align:center;color:var(--gold);font-variant-numeric:tabular-nums}
+.iv button{width:22px;height:22px;border-radius:5px;border:1px solid var(--h-line);background:none;cursor:pointer;line-height:1}
+.iv button:hover{border-color:var(--gold)}
