@@ -961,6 +961,10 @@
     o += '<div class="hudpanel bottom"><div class="mascot"><div class="mtools"><button class="chip sm' + (HUD.pickM ? ' on' : '') + '" data-hud="pickm">' + (HUD.pickM ? '캡처 위를 드래그하세요' : '캡처에서 따오기') + '</button></div><div class="bubble" id="hudsay">' + esc((I && I.say) || '오셨습니까, 주인님. 화면을 보여 주시면 이 늙은이가 필요한 것만 짚어 드리지요. 히히…') + '</div></div>' + ((I && I.bottom) || (scr === 'hero' ? heroRoster() : '')) + '</div></div>';
     return o;
   };
+  // 안내 캐릭터: 그림 높이의 1/3쯤은 캡처에 걸치고, 발끝은 말풍선 줄의 아래쪽 끝에 맞춘다 (그림 비율이 달라도 아래 내용을 덮지 않게)
+  function placeMascot() { const mw = $('.hudscene .mwrap'), row = $('.hudpanel.bottom .mascot'), sc = $('#hudscene'); if (!mw || !row || !sc) return;
+    const h = mw.getBoundingClientRect().height; if (!h) return; row.style.minHeight = Math.round(h * 0.66) + 'px';
+    const d = row.getBoundingClientRect().bottom - sc.getBoundingClientRect().bottom; mw.style.bottom = '0px'; mw.style.transform = 'translateY(' + Math.round(d) + 'px)'; }
   async function hudMount() {
     const el = $('#hudstage'); if (!el) return;
     const base = new URL('vendor/', location.href.split('#')[0]).href;
@@ -974,6 +978,7 @@
     const say = $('#hudsay'); clearInterval(HUD.typer);
     if (say && HUD.fresh) { const full = say.textContent; let n = 0; say.style.minHeight = say.offsetHeight + 'px'; say.textContent = ''; HUD.typer = setInterval(() => { n += 2; say.textContent = full.slice(0, n); if (n >= full.length) clearInterval(HUD.typer); }, 16); }
     HUD.fresh = false; HUD.slide = 0;
+    placeMascot(); const mi = $('.hudscene .mimg img'); if (mi && !mi.complete) mi.addEventListener('load', placeMascot, { once: true });
   }
   function tslotHTML() { const I = HUD.info; if (!I || !I.calls) return '';
     const camp = I.calls.filter(c => c.kind === 'cslot').sort((a, b) => a.cell.x - b.cell.x).map((c, n) => { const z = c.cell, k = c.camp;
