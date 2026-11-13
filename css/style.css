@@ -454,3 +454,22 @@ main:has(.runwrap){max-width:1560px}
 .tslot .ttip i{display:block;font-style:normal;color:var(--faint);font-size:11px;margin-bottom:2px}
 .tslot:hover{border-color:#fff;z-index:6}
 .tslot:hover .ttip{display:block}
+
+/* 추천 야영 기술 */
+.camp{padding:6px 0;border-bottom:1px solid var(--line)}
+.camp:last-of-type{border-bottom:0}
+.camp b{margin-right:6px}
+.camp .tag{margin-right:4px}
+.tslot.cslot{background:none;border-color:#7fd6d0;cursor:help}
+.tslot.cslot .tname{color:#bff1ec}
+.tslot .ttip small{color:var(--faint);font-weight:400}
+
+/* 기벽 상자: 초록 = 고정할 것, 빨강 = 지울 것 */
+.tslot.qbox{background:none;border-width:2px;border-radius:5px;cursor:help;justify-content:flex-end}
+.tslot.qbox.lock{border-color:var(--good)}
+.tslot.qbox.remove{border-color:var(--bad)}
+.qtag{position:absolute;left:calc(100% + 4px);top:50%;translate:0 -50%;padding:0 6px;border-radius:5px;font-size:clamp(9px,1vw,12px);font-weight:800;white-space:nowrap;color:#0c0a09}
+.qbox.lock .qtag{background:var(--good)}.qbox.remove .qtag{background:var(--bad)}
+.qrow{display:flex;flex-wrap:wrap;gap:6px 10px;align-items:center;padding:5px 0;border-bottom:1px solid var(--h-line,var(--line))}
+.qrow>span:first-child{font-weight:700;min-width:120px}
+.qrow select{padding:3px 8px;font-size:13px;max-width:100%}
