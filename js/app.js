@@ -673,17 +673,17 @@
   dock();
 
   // ================= 오버레이: 전체 화면 · 3D · 캡처 위아래 여백 활용 =================
-  const HUD = { force: null, pin: null, cache: {}, edit: false, stage: null, layer: null, tr: null, sel: null, info: null, busy: false, typer: null, fresh: false };
+  const HUD = { force: null, pin: null, cache: {}, heroCache: {}, edit: false, stage: null, layer: null, tr: null, sel: null, info: null, busy: false, typer: null, fresh: false };
   // 기본 영역: 영문 원본 UI(16:9) 기준 좌표. 모드나 해상도에 따라 다르면 영역 편집으로 고친다.
   const cell = (role, col) => ({ role, x: 0.359 + col * 0.03635, y: 0.135, w: 0.035, h: 0.086 });
   const DEFAULT_ZONES = {
     provision: [{ role: 'title', x: 0.14, y: 0.16, w: 0.11, h: 0.07 }, { role: 'dg', x: 0.535, y: 0.08, w: 0.26, h: 0.045 }, { role: 'len', x: 0.535, y: 0.08, w: 0.26, h: 0.045 },
       cell('item:Food', 0), cell('item:Shovel', 1), cell('item:Antivenom', 2), cell('item:Bandage', 3), cell('item:Medicinal Herbs', 4), cell('item:Skeleton Key', 5), cell('item:Holy Water', 6), cell('item:Laudanum', 7), cell('item:Torch', 8)],
     map: [{ role: 'title', x: 0.12, y: 0.15, w: 0.14, h: 0.08 }, { role: 'quest', x: 0.08, y: 0.24, w: 0.19, h: 0.35 }, { role: 'tag:darkest', x: 0.667, y: 0.088, w: 0.09, h: 0.035 }, { role: 'tag:ruins', x: 0.563, y: 0.198, w: 0.03, h: 0.035 }, { role: 'tag:warrens', x: 0.486, y: 0.365, w: 0.04, h: 0.035 }, { role: 'tag:cove', x: 0.715, y: 0.365, w: 0.045, h: 0.035 }, { role: 'tag:weald', x: 0.573, y: 0.48, w: 0.05, h: 0.035 }],
-    dungeon: [], hero: [{ role: 'hero', x: 0.085, y: 0.185, w: 0.24, h: 0.05 }, { role: 'skills', x: 0.4835, y: 0.288, w: 0.2915, h: 0.068 }],
+    dungeon: [], hero: [{ role: 'hero', x: 0.085, y: 0.185, w: 0.24, h: 0.05 }, { role: 'skills', x: 0.4835, y: 0.288, w: 0.2915, h: 0.068 }, { role: 'portrait', x: 0.118, y: 0.475, w: 0.055, h: 0.11 }],
   };
-  let zones = store.get('dd.zones6', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
-  const saveZones = () => store.set('dd.zones6', zones);
+  let zones = store.get('dd.zones7', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
+  const saveZones = () => store.set('dd.zones7', zones);
   const SCREENS = [['auto', '자동'], ['map', '원정 선택'], ['provision', '보급품'], ['hero', '영웅 정보'], ['dungeon', '탐험 중']];
   const PROV9 = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom', 'Laudanum'];
   const DG_SHORT = { ruins: '중독 ○ · 출혈 ✕', weald: '출혈 ○ · 중독 ✕', warrens: '출혈 ○ · 중독 ✕', cove: '중독 ○ · 출혈 ✕', courtyard: '출혈 ○ · 중독 ✕', farmstead: '광역 · 지속력', darkest: '스트레스 · 이형' };
@@ -692,7 +692,7 @@
   function rolesOf(screen) {
     if (screen === 'map') return [['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
     if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['title', '화면 제목 읽는 곳'], ['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
-    if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)']];
+    if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)'], ['portrait', '영웅 얼굴 (목록에 쓸 그림)']];
     return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
@@ -774,7 +774,7 @@
       const bm = BOSSES.find(b => DG[b.group] && wordsOf(b.en, b.ko, b.alt).some(w => w.length >= 3 && (na.includes(w) || (I.questText || '').includes(w)))); if (bm) { I.boss = bm.id; if (!I.dg) I.dg = bm.group; }
       if (!I.dg) { const sp = findSplatter(src); if (sp) { let best = null; Object.keys(I.boxes).forEach(id => { const b = I.boxes[id]; const dx = sp.x - (b.x + b.w / 2), dy = (sp.y - (b.y + b.h + 0.07)) * (src.height / src.width); const dist = Math.hypot(dx, dy); if (!best || dist < best.dist) best = { id, dist }; }); if (best && best.dist < 0.12) { I.dg = best.id; I.guess = true; } } }
     }
-    HUD.info = I; HUD.fresh = true; hudBuild();
+    I.src = src; HUD.info = I; HUD.fresh = true; hudBuild();
     if (I.screen) HUD.cache[I.screen] = { cv: src, info: I };
   }
   function itemT2(id) { const en = ITEM_EN[id] || id; const p = PROV[en]; return id === 'hand' ? '맨손' : koOf(en, p ? p.ko : ITEM_KO[id]); }
@@ -805,7 +805,11 @@
     if (!I.screen) { I.say = '어이쿠, 이 늙은이 눈이 침침해서 말입니다, 히히… 무슨 화면인지 통 모르겠습니다. 주인님께서 친히 위에서 골라 주시지요.'; return; }
     if (I.screen === 'hero') {
       const h = I.hero; if (!h) { I.ask = 'hero'; I.say = '흐음, 뉘신지 알아볼 수가 없군요. 어차피 오래 못 볼 얼굴들이라 그런가… 크흠, 위에서 골라 주시지요.'; I.bottom = heroRoster(); return; }
-      if (!session.heroes.includes(h)) { session.heroes.push(h); if (session.heroes.length > 4) session.heroes.shift(); saveSession(); }
+      if (I.src) {   // 이 캡처를 이 영웅의 것으로 기억한다. 영웅을 고쳐 고르면 앞서 잘못 기억한 것은 지운다
+        if (I.cachedAs && I.cachedAs !== h) { delete HUD.heroCache[I.cachedAs]; session.heroes = session.heroes.filter(x => x !== I.cachedAs); }
+        if (I.cachedAs !== h || !HUD.heroCache[h]) { let thumb = null; const zp = zone('portrait'); if (zp) { try { const tc = document.createElement('canvas'); tc.width = 88; tc.height = 100; tc.getContext('2d').drawImage(I.src, zp.x * I.src.width, zp.y * I.src.height, zp.w * I.src.width, zp.h * I.src.height, 0, 0, 88, 100); thumb = tc.toDataURL('image/jpeg', 0.85); } catch (e) { /* 무시 */ } }
+          HUD.heroCache[h] = { cv: I.src, info: I, thumb }; I.cachedAs = h; } }
+      if (!session.heroes.includes(h)) { session.heroes.push(h); saveSession(); }
       const g = HERO_GUIDE[h], b = g.builds[0];
       I.top = '<div class="row"><h2 class="hudh">' + heroT(h) + '</h2><span class="tag gold">' + esc(g.role) + '</span>' + g.pos.map(p => '<span class="tag">' + p + '열</span>').join('') + '</div><p>' + esc(g.summary) + '</p>';
       I.bottom = heroRoster() + '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + thirdLine(h, b.trinkets) + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div></div>';
@@ -852,18 +856,19 @@
     I.say = koOf(d.en, d.ko) + '(으)로 가시겠다고요? 히히… 훌륭한 선택이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 데려갈 일행은 아래에 펼쳐 두었습니다. 몇이나 돌아올지 내기라도 하시렵니까?';
     if (boss) I.say = koOf(boss.en, boss.ko) + '을(를) 잡으러 가신다고요? 히히히… 장한 결심이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 그놈 상대하는 요령은 아래에 적어 두었으니, 읽고나 가시지요.';
   }
-  function heroRoster() {   // 이번 원정에서 확인한 영웅과 일행 점검
+  function heroRoster() {   // 이번 원정에서 확인한 영웅: 앞의 4명은 일행으로 점검, 나머지는 옆에 후보로 둔다. 누르면 그 영웅을 찍어 둔 캡처가 나온다
     const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
-    const { A, slots } = checkHeroes(hs, ctx.dg);
-    let o = '<div class="card roster"><div class="row"><h3>이번 원정 일행 (' + hs.length + '/4)</h3><button class="chip sm" data-hud="tobuilder">편성기에서 다듬기</button><button class="chip sm" data-hud="clearheroes">비우기</button></div><div class="rline">' + slots.map((h, i) => '<div class="rs">' + (h ? '<span class="port">' + pic(HERO_DATA[h].img, 120, '') + '</span><b>' + esc(heroKo(h)) + '</b>' : '<span class="port"></span><b class="dim">?</b>') + '<small>' + (4 - i) + '열</small></div>').join('') + '</div>';
-    if (hs.length >= 2) o += A.warn.concat(hs.length >= 4 ? A.notes : []).slice(0, 4).map(x => '<div class="chk ' + (A.warn.includes(x) ? 'bad' : 'mid') + '">' + (A.warn.includes(x) ? '✕ ' : '△ ') + esc(x) + '</div>').join('') + (hs.length >= 4 && !A.warn.length ? '<div class="chk ok">✓ 큰 문제는 보이지 않습니다.</div>' : '');
+    const party = hs.slice(0, 4), extra = hs.slice(4); const { A, slots } = checkHeroes(party, ctx.dg); const cur = HUD.info && HUD.info.hero;
+    const tile = (h, label) => { const c = HUD.heroCache[h]; return '<div class="rs' + (h === cur ? ' on' : '') + (c ? ' has' : '') + '" data-hroster="' + esc(h) + '" title="' + (c ? '찍어 둔 캡처 보기' : '캡처 없음 — 추천 정보만 보기') + '"><button class="rx" data-hrm="' + esc(h) + '" title="목록에서 빼기">✕</button><span class="port">' + (c && c.thumb ? '<img src="' + c.thumb + '" alt="">' : pic(HERO_DATA[h].img, 120, '')) + '</span><b>' + esc(heroKo(h)) + '</b><small>' + label + '</small></div>'; };
+    let o = '<div class="card roster"><div class="row"><h3>이번 원정 영웅 (' + hs.length + '명)</h3><button class="chip sm" data-hud="tobuilder">편성기에서 다듬기</button><button class="chip sm" data-hud="clearheroes">비우기</button></div><div class="rline">' + slots.map((h, i) => h ? tile(h, (4 - i) + '열') : '<div class="rs empty"><span class="port"></span><b class="dim">?</b><small>' + (4 - i) + '열</small></div>').join('') + (extra.length ? '<span class="rsep"></span>' + extra.map(h => tile(h, '후보')).join('') : '') + '</div>';
+    if (party.length >= 2) o += A.warn.concat(party.length >= 4 ? A.notes : []).slice(0, 4).map(x => '<div class="chk ' + (A.warn.includes(x) ? 'bad' : 'mid') + '">' + (A.warn.includes(x) ? '✕ ' : '△ ') + esc(x) + '</div>').join('') + (party.length >= 4 && !A.warn.length ? '<div class="chk ok">✓ 큰 문제는 보이지 않습니다.</div>' : '');
     return o + '</div>';
   }
 
   V.hud = function () {
     const I = HUD.info; if (I && I.screen) hudBuild();
     const scr = (I && I.screen) || (HUD.force || null); const es = scr || 'provision';
-    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a><span class="sep"></span><div class="steps">' + STAGES.map(([v, l], i) => '<button class="step' + (scr === v ? ' cur' : '') + (stageDone(v) ? ' done' : '') + (HUD.cache[v] ? ' has' : '') + (HUD.force === v ? ' pin' : '') + '" data-hscreen="' + v + '" title="' + (HUD.cache[v] ? '이 단계에서 찍어 둔 캡처 보기' : '지금 캡처를 이 화면으로 분석') + '"><i>' + (stageDone(v) ? '✓' : i + 1) + '</i>' + l + '</button>').join('<span class="stepline"></span>') + '</div><span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="newrun">새 원정</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
+    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a><span class="sep"></span><div class="steps">' + STAGES.map(([v, l], i) => '<button class="step' + (scr === v ? ' cur' : '') + (stageDone(v) ? ' done' : '') + (HUD.cache[v] ? ' has' : '') + (HUD.force === v ? ' pin' : '') + '" data-hscreen="' + v + '" title="' + (HUD.cache[v] ? '이 단계에서 찍어 둔 캡처 보기' : '지금 캡처를 이 화면으로 분석') + '"><i>' + (stageDone(v) ? '✓' : i + 1) + '</i>' + l + '</button>').join('<span class="stepline"></span>') + '</div><span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="newrun" title="이번 원정의 캡처와 기록을 모두 지우고 다음 원정을 시작합니다">탐험 완료</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
     if (I && (scr === 'map' || scr === 'provision')) o += '<div class="hudbar">' + (I.ask === 'dg' ? '<b class="askb">던전 선택 ▸</b>' : '') + DUNGEONS.map(d => '<button class="chip sm' + (I.dg === d.id ? ' on' : '') + '" data-hdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '<span class="sep"></span>' + ['짧은', '중간', '긴'].map((l, i) => '<button class="chip sm' + (I.len === i ? ' on' : '') + '" data-hlen="' + i + '">' + l + '</button>').join('') + '</div>';
     if (I && scr === 'hero') o += '<div class="hudbar">' + (I.ask === 'hero' ? '<b class="askb">영웅 선택 ▸</b>' : '') + Object.keys(HERO_GUIDE).map(h => '<button class="chip sm' + (I.hero === h ? ' on' : '') + '" data-hhero="' + esc(h) + '">' + esc(heroKo(h)) + '</button>').join('') + '</div>';
     if (HUD.edit) o += '<div class="hudbar"><b>' + (STAGES.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
@@ -988,7 +993,7 @@
   document.addEventListener('pointermove', e => { const s = e.target.closest && e.target.closest('#hudscene'); const d3 = $('#hud3d'); if (!d3 || HUD.edit || HUD.pickM || (HUD.zoom && HUD.zoom.s > 1)) { if (d3 && (HUD.pickM || (HUD.zoom && HUD.zoom.s > 1))) { d3.style.transform = 'none'; HUD.par = { x: 0, y: 0 }; } return; } if (!s) { d3.style.transform = ''; HUD.par = { x: 0, y: 0 }; return; }
     const b = d3.getBoundingClientRect(); const x = (e.clientX - b.left) / b.width - 0.5, y = (e.clientY - b.top) / b.height - 0.5; HUD.par = { x, y }; d3.classList.remove('enter'); d3.style.transform = 'rotateX(' + (-y * 9).toFixed(2) + 'deg) rotateY(' + (x * 12).toFixed(2) + 'deg)'; });
   document.addEventListener('click', e => {
-    const t = e.target.closest('[data-hscreen],[data-hud],[data-hdg],[data-hlen],[data-hhero],[data-hcurio]'); if (!t) return; const d = t.dataset; const I = HUD.info;
+    const t = e.target.closest('[data-hrm],[data-hroster],[data-hscreen],[data-hud],[data-hdg],[data-hlen],[data-hhero],[data-hcurio]'); if (!t) return; const d = t.dataset; const I = HUD.info;
     const scr = (I && I.screen) || (HUD.force || 'provision');
     if (d.hscreen != null) { HUD.sel = null; const c = HUD.cache[d.hscreen];
       if (c) { OCR.last = c.cv; HUD.info = c.info; HUD.force = null; HUD.fresh = true; hudBuild(); }   // 이전에 찍어 둔 그 단계의 캡처와 분석 결과를 그대로 보여 준다 (다시 읽지 않음)
@@ -996,13 +1001,18 @@
     else if (d.hdg != null && I) { I.dg = d.hdg; ctx.dg = d.hdg; hudBuild(); }
     else if (d.hlen != null && I) { I.len = +d.hlen; ctx.len = I.len; hudBuild(); }
     else if (d.hhero != null && I) { I.hero = d.hhero; hudBuild(); }
+    else if (d.hrm != null) { e.stopPropagation(); session.heroes = session.heroes.filter(x => x !== d.hrm); delete HUD.heroCache[d.hrm]; saveSession(); if (I && I.hero === d.hrm) { I.hero = null; I.cachedAs = null; I.src = null; } }
+    else if (d.hroster != null) { const c = HUD.heroCache[d.hroster];
+      if (c) { OCR.last = c.cv; HUD.info = c.info; HUD.info.hero = d.hroster; }
+      else HUD.info = { screen: 'hero', hero: d.hroster, dg: null, len: null, det: { lines: [], words: [] } };
+      hudBuild(); }
     else if (d.hcurio != null && I) { I.curio = d.hcurio; hudBuild(); }
     else if (d.hud === 'rescan') { hudRun(); return; }
     else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
     else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
-    else if (d.hud === 'newrun') { if (!confirm('이번 원정 기록(던전, 확인한 영웅, 만난 기물)을 지우고 새로 시작할까요?')) return; session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
+    else if (d.hud === 'newrun') { if (!confirm('탐험을 마치셨나요? 이번 원정의 캡처와 기록(던전, 영웅, 가방, 만난 기물)을 모두 지우고 다음 원정을 시작합니다.')) return; HUD.heroCache = {}; OCR.last = null; OCR.thumb = null; run.inv = {}; saveRun(); session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
     else if (d.hud === 'fillbag' && I && I.dg) { const dgd = DG[I.dg]; run.dg = I.dg; run.inv = {}; PROV9.forEach(k => { run.inv[k] = (dgd.provisions[k] || [0, 0, 0])[I.len || 0] || (k === 'Laudanum' ? [0, 1, 2][I.len || 0] : 0); }); saveRun(); session.prov = true; saveSession(); }
-    else if (d.hud === 'clearheroes') { session.heroes = []; saveSession(); }
+    else if (d.hud === 'clearheroes') { session.heroes = []; HUD.heroCache = {}; saveSession(); }
     else if (d.hud === 'tobuilder') { const sl = partyFromHeroes(session.heroes); bld = { slots: sl.map((h, i) => h ? { hero: h, skills: defaultSkills(h, 4 - i) } : null), active: Math.max(0, sl.indexOf(null)), dg: ctx.dg || '' }; saveBld(); location.hash = '#/builder'; return; }
     else if (d.hud === 'pickm') { if (!OCR.last) { alert('먼저 화면을 캡처하세요.'); return; } HUD.pickM = !HUD.pickM; HUD.edit = false; }
     else if (d.hud === 'mascot') { if (store.get('dd.mascot', null) && confirm('기본 캐릭터로 되돌릴까요? (취소를 누르면 다른 그림을 고릅니다)')) { store.set('dd.mascot', null); render(true); return; }
