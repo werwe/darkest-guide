@@ -710,12 +710,13 @@
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
   const READ_ROLES = ['dg', 'len', 'curio', 'hero', 'title', 'quest'];
-  const TITLE_WORDS = { map: ['영지지도', 'estatemap'], provision: ['원정준비', 'provision', '보급품'] };
+  const TITLE_WORDS = { map: ['영지지도', 'estatemap'], provision: ['원정준비', 'provision', '보급품'], hero: ['전투기술', 'combatskills'] };
+  const TITLE_FALLBACK = { hero: { x: 0.575, y: 0.165, w: 0.11, h: 0.05 } };   // 영웅 화면의 '전투 기술' 머리글 자리
   // 직접 그린 안내 캐릭터 "까마귀 서기" (이 사이트 고유 캐릭터)
   const MASCOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 130"><ellipse cx="60" cy="122" rx="34" ry="6" fill="#000" opacity=".45"/><path d="M28 112c-6-30 4-62 32-62s38 32 32 62z" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M40 112c-2-18 2-34 20-34s22 16 20 34z" fill="#2a2732"/><circle cx="60" cy="40" r="26" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M52 44l-30 10 30 6z" fill="#d6a64a" stroke="#8a6a26" stroke-width="1.5"/><circle cx="68" cy="34" r="9" fill="#f3ead6"/><circle cx="70" cy="35" r="4" fill="#111"/><circle cx="68" cy="34" r="11.5" fill="none" stroke="#d6a64a" stroke-width="2.5"/><path d="M78 43q6 14 2 30" fill="none" stroke="#d6a64a" stroke-width="1.5"/><path d="M44 16l8 8M60 10v10M76 16l-7 8" stroke="#1c1a22" stroke-width="5" stroke-linecap="round"/><rect x="66" y="84" width="34" height="24" rx="3" fill="#e9dfc6" stroke="#8a6a26" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M72 92h20M72 98h20M72 104h12" stroke="#8a7a5a" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M30 84q-14 8-10 26 10-4 16-14z" fill="#16141b" stroke="#3a3542" stroke-width="2"/></svg>';
 
   // 장식 글꼴은 한두 글자씩 틀리게 읽히므로, 긴 글자열 안에서 비슷한 조각을 찾는다
-  function fuzzyIn(hay, w, maxD) { if (hay.includes(w)) return true; if (w.length < 5) return false; maxD = maxD == null ? (w.length >= 9 ? 2 : 1) : maxD;
+  function fuzzyIn(hay, w, maxD) { if (hay.includes(w)) return true; if (w.length < 4) return false; maxD = maxD == null ? (w.length >= 9 ? 2 : 1) : maxD;
     for (let L = w.length - 1; L <= w.length + 1; L++) for (let i = 0; i + L <= hay.length; i++) if (hay[i] === w[0] || hay[i + 1] === w[1]) { if (lev(hay.substr(i, L), w) <= maxD) return true; } return false; }
   function readDungeon(text) { const t = normT(text); let best = null; DUNGEONS.forEach(d => { [d.en, d.ko, overrides[d.en]].concat(d.alt || []).filter(Boolean).map(normT).forEach(w => { if (w.length >= 2 && (w.length >= 5 ? fuzzyIn(t, w) : t.includes(w)) && (!best || w.length > best.n)) best = { id: d.id, n: w.length }; }); }); return best && best.id; }
   function readLen(text) { const toks = String(text).split(/[\s|]+/).map(normT).filter(Boolean); let r = null; LEN_WORDS.forEach((ws, i) => { if (r == null && ws.some(w => toks.some(t => t === w || (t.length >= 3 && w.length >= 4 && w.startsWith(t))))) r = i; }); return r; }
@@ -734,7 +735,7 @@
   }
   function cropCanvas(src, z) {
     const sx = z.x * src.width, sy = z.y * src.height, sw = Math.max(4, z.w * src.width), sh = Math.max(4, z.h * src.height);
-    const sc = Math.min(6, Math.max(1.5, 90 / sh)); const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
+    const sc = Math.min(6, Math.max(Math.min(3, Math.max(1, 1650 / src.height)), 60 / sh)); const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
     const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.filter = 'grayscale(1) contrast(1.5)'; cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height); return cv;
   }
   function findBox(det, keys) {
@@ -758,13 +759,19 @@
   }
   async function hudAnalyze() {
     const src = OCR.last; if (!src) return;
-    const sc = src.width > 2200 ? 2200 / src.width : (src.width < 1300 ? Math.min(3, 2200 / src.width) : 1);
-    const cv = document.createElement('canvas'); cv.width = Math.round(src.width * sc); cv.height = Math.round(src.height * sc);
-    const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, 0, 0, cv.width, cv.height);
-    const det = await recognizeDetailed(cv); const lines = det.lines.map(l => l.t); const all = lines.join(' ');
-    OCR.lines = lines.filter(l => /[a-z가-힣]{3}/i.test(l)).slice(0, 24); const R = classify(lines);
     let byTitle = null;
-    if (!HUD.force) for (const k of Object.keys(TITLE_WORDS)) { const z = (zones[k] || []).find(x => x.role === 'title'); if (!z) continue; const zt = normT((await recognizeCanvas(cropCanvas(src, z))).join(' ')); z._read = zt; if (TITLE_WORDS[k].some(w => fuzzyIn(zt, w, 1))) { byTitle = k; break; } }
+    if (!HUD.force) {   // 화면별 제목 자리를 한 장에 모아 한 번만 읽는다
+      const crops = Object.keys(TITLE_WORDS).map(k => (zones[k] || []).find(x => x.role === 'title') || TITLE_FALLBACK[k]).filter(Boolean).map(z => cropCanvas(src, z));
+      if (crops.length) { const cw = Math.max.apply(null, crops.map(c => c.width)), ch = crops.reduce((n, c) => n + c.height + 24, 24); const cv = document.createElement('canvas'); cv.width = cw + 48; cv.height = ch; const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, cv.width, cv.height); let y = 24; crops.forEach(c => { cx.drawImage(c, 24, y); y += c.height + 24; });
+        const zt = normT((await recognizeCanvas(cv)).join(' ')); byTitle = Object.keys(TITLE_WORDS).find(k => TITLE_WORDS[k].some(w => fuzzyIn(zt, w, 1))) || null; }
+    }
+    const quick = byTitle || (['map', 'provision', 'hero'].includes(HUD.force) ? HUD.force : null);
+    let det = { lines: [], words: [] }, lines = [], all = '', R = { kind: 'none', dg: null, len: null, dgs: [] };
+    if (!quick) { const sc = src.width > 2000 ? 2000 / src.width : (src.width < 1300 ? Math.min(3, 2000 / src.width) : 1);
+      const cv = document.createElement('canvas'); cv.width = Math.round(src.width * sc); cv.height = Math.round(src.height * sc);
+      const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, 0, 0, cv.width, cv.height);
+      det = await recognizeDetailed(cv); lines = det.lines.map(l => l.t); all = lines.join(' '); R = classify(lines); }
+    OCR.lines = lines.filter(l => /[a-z가-힣]{3}/i.test(l)).slice(0, 24);
     const lvl = /견습|베테랑|숙련|챔피언|apprentice|veteran|champion/.test(normT(all));
     let screen = HUD.force || (byTitle || detectScreen(lines) || (lvl && /목표|goals/.test(normT(all)) ? 'map' : null) || ({ provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind]) || null);
     if (!screen && HUD.pin) screen = HUD.pin;   // 자동 판단이 안 될 때만 마지막으로 직접 고른 화면을 쓴다
@@ -781,6 +788,7 @@
       if (z.role === 'quest') { const l = readLen(zt); if (l != null) I.len = l; I.questText = normT(zt); }
       if (z.role === 'hero') I.hero = readHero(zt) || I.hero;
       if (z.role === 'curio') { const m = matchCurio([zt]); if (m) I.curio = m.en; }
+      if (zt && OCR.lines.length < 24) OCR.lines.push(zt.slice(0, 60));
     }
     if (screen === 'map' && fuzzyIn(normT(all), 'darkestlvl', 1)) I.dg = 'darkest';
     if (screen === 'map') {
@@ -915,7 +923,7 @@
     if (c) { OCR.last = c.cv; HUD.info = c.info; HUD.info.hero = h; } else HUD.info = { screen: 'hero', hero: h, dg: null, len: null, det: { lines: [], words: [] } };
     hudBuild(); render(true); }
   // 게임 화면 아래 가운데의 일행 4칸 (영문·한글 UI 공통 위치). 화면별 영역에 'party' 가 있으면 그것을 쓴다
-  const PARTY_ZONE = { x: 0.404, y: 0.822, w: 0.19, h: 0.076 };
+  const PARTY_ZONE = { x: 0.404, y: 0.823, w: 0.19, h: 0.074 };
   // 영웅 정보 화면의 장신구 칸 (영역 편집에 '장신구 칸'을 따로 두면 그것을 쓴다)
   const TRINKET_ZONE = { x: 0.31, y: 0.675, w: 0.14, h: 0.1 };
   // 영웅 정보 화면의 야영 기술 7칸 (영역 편집에 '야영 기술 7칸'을 따로 두면 그것을 쓴다)
@@ -931,11 +939,11 @@
   async function readQuirkLines(src, z) {
     const cv = cropCanvas(src, z); const w = await ensureWorker(); const { data } = await w.recognize(cv); const out = [];
     (data.lines || []).forEach(l => { const ws = (l.words || []).filter(x => normT(x.text).length); if (!ws.length) return; const lh = l.bbox.y1 - l.bbox.y0; let seg = [ws[0]];
-      const flush = () => { const t = seg.map(x => x.text).join(' '); if (normT(t).length >= 2 && /[가-힣a-z]{2}/i.test(t)) { const x0 = seg[0].bbox.x0, x1 = seg[seg.length - 1].bbox.x1, y0 = Math.min.apply(null, seg.map(x => x.bbox.y0)), y1 = Math.max.apply(null, seg.map(x => x.bbox.y1)); out.push({ t, b: { x: z.x + z.w * x0 / cv.width, y: z.y + z.h * y0 / cv.height, w: z.w * (x1 - x0) / cv.width, h: z.h * (y1 - y0) / cv.height } }); } };
+      const flush = () => { let t = seg.map(x => x.text).join(' ').replace(/(\s+[A-Za-z0-9*×xX>\]\[|\\/~.,'"-]{1,2})+\s*$/, '').trim(); if (!/[가-힣]{2}/.test(t) && !/[A-Za-z]{4}/.test(t)) return; if (normT(t).length >= 2 && /[가-힣a-z]{2}/i.test(t)) { const x0 = seg[0].bbox.x0, x1 = seg[seg.length - 1].bbox.x1, y0 = Math.min.apply(null, seg.map(x => x.bbox.y0)), y1 = Math.max.apply(null, seg.map(x => x.bbox.y1)); out.push({ t, b: { x: z.x + z.w * x0 / cv.width, y: z.y + z.h * y0 / cv.height, w: z.w * (x1 - x0) / cv.width, h: z.h * (y1 - y0) / cv.height } }); } };
       for (let i = 1; i < ws.length; i++) { if (ws[i].bbox.x0 - ws[i - 1].bbox.x1 > lh * 1.6) { flush(); seg = []; } seg.push(ws[i]); } flush(); });
     return out.slice(0, 14);
   }
-  const CAMP_ZONE = { x: 0.4835, y: 0.438, w: 0.2915, h: 0.074 };
+  const CAMP_ZONE = { x: 0.4835, y: 0.441, w: 0.2915, h: 0.069 };
   function quirkCard(I) { const qs = I.quirks || []; if (!qs.length) return '';
     const opts = '<option value="">무슨 기벽인지 지정…</option><option value="quirk:-">고정·제거 대상 아님</option><optgroup label="꼭 고정할 기벽">' + QUIRKS.filter(q => q.kind === 'lock').map(q => '<option value="quirk:' + esc(q.en) + '">' + esc(q.ko + ' (' + q.en + ')') + '</option>').join('') + '</optgroup><optgroup label="꼭 지울 기벽">' + QUIRKS.filter(q => q.kind === 'remove').map(q => '<option value="quirk:' + esc(q.en) + '">' + esc(q.ko + ' (' + q.en + ')') + '</option>').join('') + '</optgroup>';
     return '<div class="card"><h3>기벽</h3>' + qs.map((q, i) => { const m = matchQuirk(q.t); return '<div class="qrow"><span>' + esc(q.t) + '</span>' + (m && !m.none ? '<span class="tag ' + (m.kind === 'lock' ? 'good' : 'bad') + '">' + (m.kind === 'lock' ? '고정 추천' : '제거 추천') + ' · ' + esc(m.en) + '</span><span class="small dim">' + esc(m.why) + '</span>' : m && m.none ? '<span class="small dim">대상 아님</span>' : '<select class="field" data-qteach="' + i + '">' + opts + '</select>') + '</div>'; }).join('') + '<p class="small dim">게임의 한글 이름이 이 가이드와 다르면 자동으로 못 찾습니다. 한 번 지정해 두면 다음부터는 그 이름으로 찾습니다.</p></div>'; }
@@ -1003,7 +1011,7 @@
     host.appendChild(app.view);
     const bgL = new P.Container(), fxL = new P.Container(), callL = new P.Container(); app.stage.addChild(bgL, fxL, callL);
     if (HUD.fresh || !HUD.zoom) HUD.zoom = { s: 1, x: 0, y: 0 }; applyZoom();
-    if (src) { const sp = new P.Sprite(P.Texture.from(src)); sp.width = W * 1.03; sp.height = H * 1.03; sp.position.set(-W * 0.015, -H * 0.015); bgL.addChild(sp); }
+    if (src) { const sp = new P.Sprite(P.Texture.from(src)); sp.width = W; sp.height = H; bgL.addChild(sp); }   // 배경은 정확한 크기로 고정 (칸 표시와 어긋나지 않게)
     bgL.addChild(new P.Graphics().beginFill(0x000000, src ? 0.34 : 0).drawRect(-W * 0.05, -H * 0.05, W * 1.1, H * 1.1).endFill());
     const F = Math.max(11, Math.round(W / 88)); const font = 'Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
     const TONEC = { use: 0x6fae5c, ok: 0xd6a64a, no: 0xd0584a, gamble: 0xa98bd0, off: 0x5c5248 };
@@ -1017,7 +1025,7 @@
         bg.lineStyle(2, col, 1).beginFill(c.tone === 'off' ? 0x161310 : 0x11160f, 0.96).drawRoundedRect(0, 0, w, h, F * 0.5).endFill(); g.cx = c.x * W; g.cy = c.below ? c.y * H + h / 2 : c.y * H - h * 0.15;
         // 칸이 좁아 옆 배지와 겹치면: 두 칸 너비 안에 들어가게 줄이고 한 칸씩 엇갈려 아래로 내린다
         if (c.cell) { const pitch = c.cell.w * W * 1.04; if (w > pitch * 0.94) { g.bs = Math.min(1, pitch * 2 * 0.92 / w); const col = I.calls.filter(o => o.cell && o.kind === 'badge' && o.cell.x < c.cell.x - 1e-6).length; if (col % 2) g.cy += (c.below ? 1 : -1) * (h * g.bs + 3); } bi++; }
-        if (c.cell && c.tone !== 'off') { const r = new P.Graphics().lineStyle(2, col, 0.9).drawRoundedRect(c.cell.x * W, c.cell.y * H, c.cell.w * W, c.cell.h * H, 4); fxL.addChild(r); pulses.push({ r, ph: i * 0.6 }); }
+        if (c.cell && c.tone !== 'off') { const gx = c.cell.w * W * 0.035; const r = new P.Graphics().lineStyle(2, col, 0.9).drawRoundedRect(c.cell.x * W + gx, c.cell.y * H, c.cell.w * W - gx * 2, c.cell.h * H, 4); fxL.addChild(r); pulses.push({ r, ph: i * 0.6 }); }
       } else if (c.kind === 'tag') {
         const t = txt(c.title, F * 0.95, 0xe9e1d3, true), s = txt(c.sub, F * 0.9, c.on ? 0xe9e1d3 : 0xa79b89, false); const px = F * 0.5, py = F * 0.15; t.position.set(px, py); s.position.set(px + t.width + F * 0.45, py + (t.height - s.height) / 2); g.addChild(t, s); w = s.x + s.width + px; h = t.height + py * 2;
         bg.lineStyle(c.on ? 2 : 1, c.on ? 0xd6a64a : 0x4a3d31, 1).beginFill(c.on ? 0x2a1f10 : 0x14100e, 0.94).drawRoundedRect(0, 0, w, h, F * 0.4).endFill(); g.cx = c.x * W + w / 2; g.cy = c.y * H + h / 2;
@@ -1032,11 +1040,11 @@
     });
     if (I && ['map', 'hero', 'provision'].includes(I.screen) && session.heroes.length && src) {
       const pz = (zones[I.screen] || []).find(z => z.role === 'party') || PARTY_ZONE; const cw = pz.w / 4;
-      const mk = (h, x, extra) => { const g = new P.Container(); const w = cw * W - 4, hh = pz.h * H; const cur = h === I.hero && I.screen === 'hero'; const r = new P.Graphics();
+      const mk = (h, x, extra) => { const g = new P.Container(); const w = cw * W * 0.9, hh = pz.h * H; const cur = h === I.hero && I.screen === 'hero'; const r = new P.Graphics();
         if (extra) { r.lineStyle(1.5, cur ? 0xd6a64a : 0x6d5420, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, hh, 4).endFill(); g.addChild(r); const c = HUD.heroCache[h]; if (c && c.thumb) { const sp = P.Sprite.from(c.thumb); sp.width = w - 4; sp.height = hh - 4; sp.position.set(2, 2); g.addChild(sp); } }
         else { r.lineStyle(2, cur ? 0xd6a64a : 0x8a6a26, cur ? 1 : 0.75).beginFill(0xffffff, 0.001).drawRoundedRect(0, 0, w, hh, 4).endFill(); g.addChild(r); }
         const t = txt(heroKo(h), F * 0.78, cur ? 0xd6a64a : 0xe9e1d3, true); const tb = new P.Graphics().beginFill(0x14100e, 0.92).drawRoundedRect(0, 0, t.width + 8, t.height + 2, 3).endFill(); const lab = new P.Container(); t.position.set(4, 1); lab.addChild(tb, t); const ls = Math.min(1, (w + 2) / (t.width + 8)); lab.scale.set(ls); lab.position.set((w - (t.width + 8) * ls) / 2, -(t.height + 2) * ls - 3); g.addChild(lab);
-        g.position.set(x * W + 2, pz.y * H); g.eventMode = 'static'; g.cursor = 'pointer'; g.on('pointertap', () => showHero(h)); callL.addChild(g); };
+        g.position.set(x * W + cw * W * 0.05, pz.y * H); g.eventMode = 'static'; g.cursor = 'pointer'; g.on('pointertap', () => showHero(h)); callL.addChild(g); };
       session.heroes.slice(0, 4).forEach((h, i) => mk(h, pz.x + cw * i, false));
       session.heroes.slice(4).forEach((h, k) => { const n = Math.floor(k / 2); mk(h, k % 2 === 0 ? pz.x + pz.w + 0.004 + cw * n : pz.x - 0.004 - cw * (n + 1), true); });
     }
@@ -1044,7 +1052,7 @@
     HUD.par = HUD.par || { x: 0, y: 0 }; const cur = HUD.cur = HUD.cur || { x: 0, y: 0 }; let t = 0;
     if (still) return;
     HUD.tick = () => { const dt = app.ticker.deltaMS / 1000; t += dt;
-      cur.x += (HUD.par.x - cur.x) * 0.12; cur.y += (HUD.par.y - cur.y) * 0.12; bgL.position.set(-cur.x * 10, -cur.y * 7); fxL.position.set(cur.x * 4, cur.y * 3); callL.position.set(cur.x * 18, cur.y * 12);
+      cur.x += (HUD.par.x - cur.x) * 0.12; cur.y += (HUD.par.y - cur.y) * 0.12; callL.position.set(cur.x * 14, cur.y * 9);   // 떠 있는 표시만 움직인다. 배경과 칸 테두리는 고정
       items.forEach(o => { const p = Math.min(1, Math.max(0, (t - o.d) / 0.3)); const e = 1 - Math.pow(1 - p, 3); o.g.alpha = e; o.g.scale.set((1.25 - 0.25 * e) * o.g.bs); o.g.y = o.g.cy + Math.sin(t * 1.4 + o.ph) * 1.5 + (1 - e) * 12; });
       pulses.forEach(o => { o.r.alpha = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.4 + o.ph)); });
       embers.forEach(o => { o.life += dt * 0.12; if (o.life > 1) { o.life = 0; o.x = Math.random() * W; o.y = H + 4; } o.y -= o.v * dt; o.e.position.set(o.x + Math.sin(t + o.sw) * 8, o.y); o.e.alpha = Math.sin(o.life * Math.PI) * 0.7; if (o.y < -6) { o.y = H + 4; o.life = 0; } });
