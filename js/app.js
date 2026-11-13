@@ -904,12 +904,14 @@
     const F = Math.max(11, Math.round(W / 88)); const font = 'Pretendard, "Apple SD Gothic Neo", "Malgun Gothic", "Noto Sans KR", sans-serif';
     const TONEC = { use: 0x6fae5c, ok: 0xd6a64a, no: 0xd0584a, gamble: 0xa98bd0, off: 0x5c5248 };
     const txt = (s, size, fill, bold, wrap) => new P.Text(s, { fontFamily: font, fontSize: size, fill, fontWeight: bold ? '800' : '500', wordWrap: !!wrap, wordWrapWidth: wrap || 0, breakWords: true, lineHeight: Math.round(size * 1.4) });
-    const items = [], pulses = [];
+    const items = [], pulses = []; let bi = 0;
     (I ? I.calls : []).forEach((c, i) => {
       const g = new P.Container(); const col = TONEC[c.tone] || 0xd6a64a; let w, h; const bg = new P.Graphics(); g.addChild(bg);
       if (c.kind === 'badge') {
         const t = txt(c.title, F * (c.small ? 0.95 : 1.55), c.tone === 'off' ? 0xb8b0a3 : 0xeaf6e4, true); const px = F * 0.55, py = F * 0.12; w = t.width + px * 2; h = t.height + py * 2; t.position.set(px, py); g.addChild(t);
         bg.lineStyle(2, col, 1).beginFill(c.tone === 'off' ? 0x161310 : 0x11160f, 0.96).drawRoundedRect(0, 0, w, h, F * 0.5).endFill(); g.cx = c.x * W; g.cy = c.below ? c.y * H + h / 2 : c.y * H - h * 0.15;
+        // 칸이 좁아 옆 배지와 겹치면: 두 칸 너비 안에 들어가게 줄이고 한 칸씩 엇갈려 아래로 내린다
+        if (c.cell) { const pitch = c.cell.w * W * 1.04; if (w > pitch * 0.94) { g.bs = Math.min(1, pitch * 2 * 0.92 / w); const col = I.calls.filter(o => o.cell && o.kind === 'badge' && o.cell.x < c.cell.x - 1e-6).length; if (col % 2) g.cy += (c.below ? 1 : -1) * (h * g.bs + 3); } bi++; }
         if (c.cell && c.tone !== 'off') { const r = new P.Graphics().lineStyle(2, col, 0.9).drawRoundedRect(c.cell.x * W, c.cell.y * H, c.cell.w * W, c.cell.h * H, 4); fxL.addChild(r); pulses.push({ r, ph: i * 0.6 }); }
       } else if (c.kind === 'tag') {
         const t = txt(c.title, F * 0.95, 0xe9e1d3, true), s = txt(c.sub, F * 0.9, c.on ? 0xe9e1d3 : 0xa79b89, false); const px = F * 0.5, py = F * 0.15; t.position.set(px, py); s.position.set(px + t.width + F * 0.45, py + (t.height - s.height) / 2); g.addChild(t, s); w = s.x + s.width + px; h = t.height + py * 2;
@@ -920,14 +922,14 @@
         bg.lineStyle(1.5, 0x57483a, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, h, F * 0.55).endFill(); g.cx = Math.min(W - w / 2 - 6, Math.max(w / 2 + 6, c.x * W + w / 2)); g.cy = Math.min(H - h / 2 - 6, Math.max(h / 2 + 6, c.y * H + h / 2));
         if (c.ax != null) { const ln = new P.Graphics().lineStyle(2, col, 0.85).moveTo(c.ax * W, c.ay * H).lineTo(g.cx, g.cy - h / 2).beginFill(col).drawCircle(c.ax * W, c.ay * H, 4).endFill(); fxL.addChild(ln); }
       }
-      g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still || !intro ? 1 : 0; callL.addChild(g); items.push({ g, d: intro ? i * 0.045 : -1, ph: i * 1.3 });
+      g.bs = g.bs || 1; g.scale.set(g.bs); g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still || !intro ? 1 : 0; callL.addChild(g); items.push({ g, d: intro ? i * 0.045 : -1, ph: i * 1.3 });
     });
     const embers = []; if (!still && src) for (let k = 0; k < 34; k++) { const e = new P.Graphics().beginFill(0xffa040).drawCircle(0, 0, 1 + Math.random() * 1.6).endFill(); e.blendMode = P.BLEND_MODES.ADD; fxL.addChild(e); embers.push({ e, x: Math.random() * W, y: Math.random() * H, v: 8 + Math.random() * 22, sw: Math.random() * 6, life: Math.random() }); }
     HUD.par = HUD.par || { x: 0, y: 0 }; const cur = HUD.cur = HUD.cur || { x: 0, y: 0 }; let t = 0;
     if (still) return;
     HUD.tick = () => { const dt = app.ticker.deltaMS / 1000; t += dt;
       cur.x += (HUD.par.x - cur.x) * 0.12; cur.y += (HUD.par.y - cur.y) * 0.12; bgL.position.set(-cur.x * 10, -cur.y * 7); fxL.position.set(cur.x * 4, cur.y * 3); callL.position.set(cur.x * 18, cur.y * 12);
-      items.forEach(o => { const p = Math.min(1, Math.max(0, (t - o.d) / 0.3)); const e = 1 - Math.pow(1 - p, 3); o.g.alpha = e; o.g.scale.set(1.25 - 0.25 * e); o.g.y = o.g.cy + Math.sin(t * 1.4 + o.ph) * 1.5 + (1 - e) * 12; });
+      items.forEach(o => { const p = Math.min(1, Math.max(0, (t - o.d) / 0.3)); const e = 1 - Math.pow(1 - p, 3); o.g.alpha = e; o.g.scale.set((1.25 - 0.25 * e) * o.g.bs); o.g.y = o.g.cy + Math.sin(t * 1.4 + o.ph) * 1.5 + (1 - e) * 12; });
       pulses.forEach(o => { o.r.alpha = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.4 + o.ph)); });
       embers.forEach(o => { o.life += dt * 0.12; if (o.life > 1) { o.life = 0; o.x = Math.random() * W; o.y = H + 4; } o.y -= o.v * dt; o.e.position.set(o.x + Math.sin(t + o.sw) * 8, o.y); o.e.alpha = Math.sin(o.life * Math.PI) * 0.7; if (o.y < -6) { o.y = H + 4; o.life = 0; } });
     }; app.ticker.add(HUD.tick);
