@@ -1,0 +1,19 @@
+{
+  "manifest_version": 3,
+  "name": "다키스트 던전 공략 수첩 — 전역 단축키",
+  "version": "1.0.0",
+  "description": "게임을 하는 중에도 단축키로 공략 수첩의 화면 인식을 실행합니다.",
+  "permissions": ["tabs"],
+  "host_permissions": ["https://*.github.io/darkest-guide/*", "http://localhost/*", "http://127.0.0.1/*"],
+  "background": { "service_worker": "background.js" },
+  "content_scripts": [
+    { "matches": ["https://*.github.io/darkest-guide/*", "http://localhost/*", "http://127.0.0.1/*"], "js": ["content.js"] }
+  ],
+  "commands": {
+    "capture": {
+      "suggested_key": { "default": "Ctrl+Shift+1" },
+      "global": true,
+      "description": "게임 화면 인식 실행"
+    }
+  }
+}

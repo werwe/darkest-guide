@@ -173,7 +173,7 @@
     o += '<div class="two"><div class="card"><h3>통하는 공격</h3><div class="chips">' + d.dmg.good.map(x => '<span class="tag good">' + esc(x) + '</span>').join('') + d.dmg.bad.map(x => '<span class="tag bad">✕ ' + esc(x) + '</span>').join('') + '</div><div class="small dim">적 유형: ' + esc(d.enemies) + '</div></div>' +
       '<div class="card"><h3>영웅</h3><div class="small dim" style="margin-top:6px">추천</div><div class="chips">' + heroChips(d.heroes.good, 'good') + '</div>' + (d.heroes.bad.length ? '<div class="small dim">비추천</div><div class="chips">' + heroChips(d.heroes.bad, 'bad') + '</div><div class="small dim">' + esc(d.badWhy) + '</div>' : '') + '</div></div>';
     // 보급품
-    o += '<h2>보급품 체크리스트</h2>' + chipRow(labels.map((l, i) => [String(i), l]), String(li), 'len');
+    o += '<h2 id="provsec">보급품 체크리스트</h2>' + chipRow(labels.map((l, i) => [String(i), l]), String(li), 'len');
     o += '<div class="prov">' + Object.keys(d.provisions).map(k => {
       const n = d.provisions[k][li], p = PROV[k];
       return '<label class="' + (n ? '' : 'zero') + '"><input type="checkbox" class="provck">' + pic(p.img, 0, 'ico') + '<span>' + T(p.en, p.ko) + '</span><span class="n">' + (n ? '×' + n : '–') + '</span></label>';
@@ -495,6 +495,363 @@
     render(true);
   });
 
+  // ================= 화면 인식 (게임 창 캡처 → 글자 읽기 → 상황 판단 → 맞는 페이지로 이동) =================
+  const OCR = { stream: null, video: null, worker: null, busy: false, auto: false, timer: null, lines: [], status: '', thumb: null, last: null, pick: null, result: null, lastKey: '', open: store.get('dd.dockOpen', false), media: false, audio: null, ask: null, region: store.get('dd.ocrRegion', null) };
+  let aliases = store.get('dd.ocrAlias', {});   // 읽은 글자(정규화) -> 'curio:영문명' | 'dg:id' | 'len:0~2' | 'screen:provision|map' | 'boss:id'
+  Object.keys(aliases).forEach(k => { if (!/^[a-z]+:/.test(aliases[k])) aliases[k] = 'curio:' + aliases[k]; });
+  let ctx = store.get('dd.ctx', { dg: null, len: null });   // 마지막으로 인식한 던전/길이 (보급품 화면에 던전 이름이 없을 때 사용)
+  const normT = s => String(s).toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+  function lev(a, b) { const m = a.length, n = b.length; if (!m) return n; if (!n) return m; let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]; }
+  const countIn = (hay, needle) => { let n = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0) { n++; i += needle.length; } return n; };
+  // 키워드 표 (영문 원문 + 이 가이드의 한글 + 다른 번역 후보 + 사용자가 용어 사전에 적은 용어). 실제 캡처로 계속 보강할 부분.
+  const LEN_WORDS = [['short', '짧은', '짧음', '단거리'], ['medium', '중간', '보통'], ['long', '장거리', '긴원정', '긴', '김']];
+  const SCREEN_WORDS = { provision: ['provision', 'provisions', '보급', '보급품', '물자', '식량및물자'], map: ['embark', 'expedition', 'questlength', '원정', '출정', '출발'] };
+  function wordsOf(en, ko, alt) { return [en, ko, overrides[en]].concat(alt || []).filter(Boolean).map(normT).filter(k => k.length >= 2); }
+  function matchCurio(lines, all, nl) {
+    all = all || normT(lines.join(' ')); nl = nl || lines.map(normT).filter(x => x.length >= 2); let best = null;
+    const consider = (en, score, how) => { const c = CURIOS.find(x => x.en === en); if (!c) return; if (c.dg === (ctx.dg || run.dg) || c.dg === 'all') score += 0.5; if (!best || score > best.score) best = { en, score, how }; };
+    const seen = {};
+    CURIOS.forEach(c => { if (seen[c.en]) return; seen[c.en] = 1;
+      [c.ko, overrides[c.en], c.en.replace(/\s*\(.*\)/, '')].filter(Boolean).forEach(name => { const k = normT(name); if (k.length < 2) return;
+        if (k.length >= 4 && all.includes(k)) consider(c.en, 10 + k.length, '이름 일치');
+        else nl.forEach(l => { if (l === k) consider(c.en, 10 + k.length, '이름 일치'); else if (k.length >= 4 && Math.abs(l.length - k.length) <= 2) { const r = 1 - lev(l, k) / Math.max(l.length, k.length); if (r >= 0.75) consider(c.en, r * k.length, '비슷한 이름'); } });
+      }); });
+    return best;
+  }
+  // 읽은 글자로 지금 어떤 화면인지 판단
+  function classify(lines) {
+    const all = normT(lines.join(' ')); const nl = lines.map(normT).filter(x => x.length >= 2); const toks = lines.join(' ').split(/\s+/).map(normT).filter(Boolean);
+    const R = { kind: 'none', dg: null, len: null, dgs: [], why: [] };
+    const learned = {}; const hit = (k, v) => { (learned[k] = learned[k] || []).push(v); };
+    Object.keys(aliases).forEach(a => { if (nl.includes(a) || (a.length >= 3 && all.includes(a))) { const [k, v] = aliases[a].split(/:(.*)/); hit(k, v); } });
+    // 던전: 화면에 여러 던전 이름이 보일 수 있으므로 가장 많이 나온 이름을 고른다
+    const cnt = {};
+    DUNGEONS.forEach(d => { if (d.id === 'darkest') return; let n = 0; wordsOf(d.en, d.ko, d.alt).forEach(w => { n = Math.max(n, w.length >= 3 ? countIn(all, w) : toks.filter(t => t === w).length); }); if (n) cnt[d.id] = n; });
+    (learned.dg || []).forEach(id => { cnt[id] = (cnt[id] || 0) + 5; });
+    R.dgs = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]);
+    if (R.dgs.length === 1 || (R.dgs.length > 1 && cnt[R.dgs[0]] > cnt[R.dgs[1]])) R.dg = R.dgs[0];
+    // 길이
+    if (learned.len) R.len = +learned.len[0];
+    else LEN_WORDS.forEach((ws, i) => { if (R.len == null && ws.some(w => toks.includes(w) || (w.length >= 5 && all.includes(w)))) R.len = i; });
+    // 보급품 화면: 보급품 이름이 여러 개 보이거나 화면 제목이 보임
+    const provHits = PROVISIONS.filter(p => wordsOf(p.en, p.ko, p.alt).some(w => w.length >= 3 ? all.includes(w) : toks.includes(w))).map(p => p.en);
+    const isProv = (learned.screen || []).includes('provision') || provHits.length >= 3 || (provHits.length >= 2 && SCREEN_WORDS.provision.some(w => all.includes(w)));
+    const boss = (learned.boss || [])[0] || (BOSSES.find(b => wordsOf(b.en, b.ko, b.alt).some(w => w.length >= 4 && all.includes(w))) || {}).id;
+    const curio = learned.curio ? { en: learned.curio[0], how: '등록한 내 용어' } : matchCurio(lines, all, nl);
+    if (isProv) { R.kind = 'provision'; R.why.push('보급품 이름 ' + provHits.length + '개'); }
+    else if ((learned.screen || []).includes('map')) R.kind = 'map';
+    else if (curio) { R.kind = 'curio'; R.curio = curio.en; R.why.push(curio.how); }
+    else if (boss) { R.kind = 'boss'; R.boss = boss; }
+    else if (R.dgs.length) { R.kind = 'map'; R.why.push('던전 이름'); }
+    return R;
+  }
+  function applyResult(R, silentSame) {
+    const key = [R.kind, R.dg, R.len, R.curio, R.boss].join('|');
+    if (silentSame && key === OCR.lastKey) return; OCR.lastKey = key; OCR.ask = null;
+    const dgName = id => koOf(DG[id].en, DG[id].ko); const LEN = ['짧은', '중간', '긴'];
+    if (R.kind === 'curio') { const c = CURIOS.find(x => x.en === R.curio); if (c.dg !== 'all' && c.dg !== run.dg) run.dg = c.dg; run.sel = c.en; saveRun(); OCR.status = '탐험 중 · 기물: ' + koOf(c.en, c.ko) + ' → 원정 진행'; go('#/run/' + run.dg); return; }
+    if (R.kind === 'boss') { const b = BOSSES.find(x => x.id === R.boss); OCR.status = '보스: ' + koOf(b.en, b.ko) + ' → 보스 공략'; go('#/boss/' + b.id); return; }
+    if (R.kind === 'provision') {
+      const dg = R.dg || ctx.dg, len = R.len != null ? R.len : (ctx.len != null ? ctx.len : 0);
+      if (!dg) { OCR.status = '보급품 구매 화면 · 어느 던전인지 못 읽었습니다. 골라 주세요.'; OCR.ask = { kind: 'provision', len }; return; }
+      ctx = { dg, len }; store.set('dd.ctx', ctx); OCR.status = '보급품 구매 화면 · ' + dgName(dg) + ' · ' + LEN[len] + ' 원정 → 보급품 체크리스트'; go('#/plan/' + dg + '/' + len, 'provsec'); return;
+    }
+    if (R.kind === 'map') {
+      if (!R.dg) { OCR.status = '원정 선택 화면 · 던전 이름이 여러 개 보여서 하나로 정하지 못했습니다. 골라 주세요.'; OCR.ask = { kind: 'map', len: R.len, dgs: R.dgs }; return; }
+      ctx = { dg: R.dg, len: R.len != null ? R.len : ctx.len }; store.set('dd.ctx', ctx); bld.dg = R.dg; saveBld();
+      OCR.status = '원정 선택 화면 · ' + dgName(R.dg) + (R.len != null ? ' · ' + LEN[R.len] + ' 원정' : '') + ' → 추천 파티'; go('#/parties?tag=' + R.dg); return;
+    }
+    OCR.status = OCR.lines.length ? '어떤 화면인지 알아내지 못했습니다. 아래 읽은 글자 중 단서가 되는 것을 눌러 무엇인지 알려 주면 다음부터 인식합니다.' : '글자를 읽지 못했습니다.';
+  }
+  function go(hash, scrollId) { if (location.hash !== hash) location.hash = hash; else render(true); if (scrollId) setTimeout(() => { const el = document.getElementById(scrollId); if (el) el.scrollIntoView({ block: 'start' }); }, 60); }
+  function loadScript(src) { return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('스크립트를 불러오지 못했습니다')); document.head.appendChild(s); }); }
+  async function ensureWorker() {
+    if (OCR.worker) return OCR.worker;
+    const base = new URL('vendor/tesseract/', location.href.split('#')[0]).href;
+    if (!window.Tesseract) await loadScript(base + 'tesseract.min.js');
+    OCR.worker = await window.Tesseract.createWorker(['kor', 'eng'], 1, { workerPath: base + 'worker.min.js', corePath: base, langPath: base + 'lang', gzip: true });
+    return OCR.worker;
+  }
+  async function recognizeCanvas(cv) { const w = await ensureWorker(); const { data } = await w.recognize(cv); return data.text.split('\n').map(x => x.trim()).filter(x => normT(x).length >= 2); }
+  function prep(src, W, H) {   // 원본(비디오/이미지) → 인식용 캔버스 + 미리보기
+    const r = OCR.region || { x: 0, y: 0, w: 1, h: 1 };
+    const sx = r.x * W, sy = r.y * H, sw = Math.max(8, r.w * W), sh = Math.max(8, r.h * H);
+    const sc = sw < 1000 ? 2 : (sw > 1920 ? 1920 / sw : 1);
+    const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
+    const cx = cv.getContext('2d'); cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    const t = document.createElement('canvas'); t.width = 480; t.height = Math.round(480 * H / W); t.getContext('2d').drawImage(src, 0, 0, t.width, t.height);
+    const full = document.createElement('canvas'); full.width = W; full.height = H; full.getContext('2d').drawImage(src, 0, 0);
+    try { OCR.thumb = t.toDataURL('image/jpeg', 0.6); OCR.last = full; } catch (e) { /* 무시 */ }
+    return cv;
+  }
+  async function ocrConnect() {
+    try {
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
+      const v = document.createElement('video'); v.muted = true; v.srcObject = s; await v.play();
+      OCR.stream = s; OCR.video = v; OCR.status = '게임 화면 연결됨. 처음 인식할 때 글자 인식 데이터(약 5MB)를 내려받습니다.';
+      s.getVideoTracks()[0].addEventListener('ended', () => { ocrStop(); dock(); });
+      setTimeout(() => { if (OCR.video && OCR.video.videoWidth) { prep(OCR.video, OCR.video.videoWidth, OCR.video.videoHeight); dock(); } }, 500);
+    } catch (e) { OCR.status = '화면 공유가 취소되었거나 이 브라우저에서 지원되지 않습니다.'; }
+    dock();
+  }
+  function ocrStop() { if (OCR.stream) OCR.stream.getTracks().forEach(t => t.stop()); clearInterval(OCR.timer); OCR.stream = OCR.video = null; OCR.auto = false; OCR.status = '연결 해제됨'; }
+  async function ocrRun(src, W, H, silent) {
+    if (OCR.busy) return; OCR.busy = true;
+    if (!silent) { OCR.status = '인식 중…'; if (parseHash().view !== 'hud') OCR.open = true; dock(); }
+    try {
+      const t0 = performance.now(); const cv0 = prep(src, W, H);
+      if (parseHash().view === 'hud') { OCR.pick = null; await hudAnalyze(); OCR.status = '오버레이 갱신됨'; render(true); }
+      else { const lines = await recognizeCanvas(cv0); OCR.lines = lines.slice(0, 24); OCR.pick = null; OCR.result = classify(lines); applyResult(OCR.result, silent); }
+      OCR.ms = Math.round(performance.now() - t0);
+    } catch (e) { OCR.status = '인식 실패: ' + e.message + (location.protocol === 'file:' ? ' (파일로 직접 연 경우 동작하지 않습니다. 배포된 주소에서 사용하세요.)' : ''); }
+    OCR.busy = false; dock();
+  }
+  function ocrScan(silent) {
+    const v = OCR.video; if (!v || !v.videoWidth) { OCR.status = '먼저 게임 화면을 연결하세요. (또는 스크린샷을 Ctrl+V로 붙여 넣기)'; OCR.open = true; dock(); return; }
+    return ocrRun(v, v.videoWidth, v.videoHeight, silent);
+  }
+  // 미디어 키(다음 곡 등)를 전역 단축키로 사용 — 설치 없이 쓰는 실험적 방법
+  function mediaToggle() {
+    if (OCR.media) { OCR.media = false; if (OCR.audio) { OCR.audio.pause(); OCR.audio = null; } return; }
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)(); const osc = ac.createOscillator(), g = ac.createGain(), dst = ac.createMediaStreamDestination();
+      g.gain.value = 0.0001; osc.connect(g); g.connect(dst); osc.start();
+      const a = new Audio(); a.srcObject = dst.stream; a.play(); OCR.audio = a; OCR.media = true;
+      if (navigator.mediaSession) { navigator.mediaSession.metadata = new MediaMetadata({ title: '공략 수첩 화면 인식 대기 중' }); ['nexttrack', 'previoustrack', 'play', 'pause'].forEach(k => { try { navigator.mediaSession.setActionHandler(k, () => { if (OCR.audio) OCR.audio.play(); ocrScan(false); }); } catch (e) { /* 무시 */ } }); }
+    } catch (e) { OCR.status = '미디어 키를 쓸 수 없는 브라우저입니다.'; }
+  }
+  function dock() {
+    let el = $('#dock'); if (!el) { el = document.createElement('div'); el.id = 'dock'; document.body.appendChild(el); }
+    const sup = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia; const on = !!OCR.stream; const r = OCR.region;
+    if (!OCR.open) { el.className = 'dock closed'; el.innerHTML = '<button class="dockbtn" data-ocr="open">' + (on ? '● ' : '') + '화면 인식</button>'; return; }
+    el.className = 'dock';
+    let o = '<div class="row"><h3>화면 인식</h3><button class="xbtn" data-ocr="close" title="접기">▾</button></div>';
+    o += '<div class="row" style="margin-top:6px">' + (on ? '<button class="chip sm on" data-ocr="scan">지금 인식 (F8)</button><button class="chip sm' + (OCR.auto ? ' on' : '') + '" data-ocr="auto">자동 ' + (OCR.auto ? '켜짐' : '꺼짐') + '</button><button class="chip sm" data-ocr="stop">연결 해제</button>' : (sup ? '<button class="chip sm on" data-ocr="connect">게임 화면 연결</button>' : '<span class="small dim">이 브라우저는 화면 연결을 지원하지 않습니다. 스크린샷 붙여 넣기는 가능합니다.</span>')) + '<button class="chip sm' + (OCR.media ? ' on' : '') + '" data-ocr="media" title="키보드의 미디어 키(다음 곡 등)를 누르면 인식합니다. 게임 중에도 동작할 수 있는 실험적 방법입니다.">미디어 키 ' + (OCR.media ? '켜짐' : '꺼짐') + '</button></div>';
+    if (OCR.status) o += '<div class="dockstatus">' + esc(OCR.status) + (OCR.ms ? ' <span class="dim">(' + OCR.ms + 'ms)</span>' : '') + '</div>';
+    if (OCR.ask) o += '<div class="chips" style="margin:4px 0">' + DUNGEONS.filter(d => !OCR.ask.dgs || !OCR.ask.dgs.length || OCR.ask.dgs.includes(d.id)).map(d => '<button class="chip sm" data-oask="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '</div>';
+    if (OCR.thumb) o += '<div class="ocrprev" id="ocrprev"><img src="' + OCR.thumb + '" alt="" draggable="false">' + (r ? '<i style="left:' + r.x * 100 + '%;top:' + r.y * 100 + '%;width:' + r.w * 100 + '%;height:' + r.h * 100 + '%"></i>' : '') + '</div><div class="small dim">미리보기를 드래그하면 그 영역만 읽습니다. ' + (r ? '<a href="#" data-ocr="noregion">영역 해제</a> · ' : '') + '<a href="#" data-ocr="save">이 캡처 저장</a></div>';
+    if (OCR.lines.length) {
+      o += '<div class="small dim" style="margin-top:6px">읽은 글자 — 단서가 되는 글자를 누르면 뜻을 등록할 수 있습니다</div><div class="chips docklines">' + OCR.lines.map((l, i) => '<button class="chip sm' + (OCR.pick === i ? ' on' : '') + '" data-opick="' + i + '">' + esc(l.slice(0, 28)) + '</button>').join('') + '</div>';
+      if (OCR.pick != null) { const seen = {};
+        o += '<select class="field" id="oteach" style="width:100%"><option value="">"' + esc(OCR.lines[OCR.pick].slice(0, 20)) + '" 은(는) 무엇인가요?</option><optgroup label="화면 종류"><option value="screen:map">원정 선택 화면</option><option value="screen:provision">보급품 구매 화면</option></optgroup><optgroup label="던전">' + DUNGEONS.map(d => '<option value="dg:' + d.id + '">' + esc(d.ko + ' (' + d.en + ')') + '</option>').join('') + '</optgroup><optgroup label="원정 길이"><option value="len:0">짧은 원정</option><option value="len:1">중간 원정</option><option value="len:2">긴 원정</option></optgroup><optgroup label="기물">' + CURIOS.filter(c => !seen[c.en] && (seen[c.en] = 1)).map(c => '<option value="curio:' + esc(c.en) + '">' + esc(c.ko + ' (' + c.en + ')') + '</option>').join('') + '</optgroup><optgroup label="보스">' + BOSSES.map(b => '<option value="boss:' + b.id + '">' + esc(b.ko + ' (' + b.en + ')') + '</option>').join('') + '</optgroup></select>'; }
+    }
+    const na = Object.keys(aliases).length;
+    o += '<details class="small dim" style="margin-top:6px"><summary>사용법 · 게임 중 단축키</summary><ul><li>게임 창을 연결한 뒤 인식하면, 화면에 따라 추천 파티 · 보급품 체크리스트 · 기물 안내로 이동합니다.</li><li><b>게임 중 단축키</b>: 저장소의 <code>extension</code> 폴더를 크롬 확장으로 설치하면 전역 단축키(기본 Ctrl+Shift+1)로 캡처해 <b>전체 화면 오버레이</b>를 띄웁니다. 오버레이는 이 단축키로만 열립니다. 설치 방법은 README 참고. 설치 없이 쓰려면 "미디어 키"를 켜고 키보드의 다음 곡 키를 눌러 보세요.</li><li>연결 없이도 스크린샷을 찍어 이 페이지에 <b>Ctrl+V</b>로 붙여 넣으면 인식합니다.</li><li>화면은 이 컴퓨터 안에서만 처리됩니다.</li></ul>' + (na ? '등록한 글자 ' + na + '개 · <a href="#" data-ocr="clearalias">모두 지우기</a>' : '') + '</details>';
+    el.innerHTML = o;
+  }
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-ocr],[data-opick],[data-oask]'); if (!t) return; e.preventDefault(); const a = t.dataset.ocr;
+    if (t.dataset.opick != null) { const i = +t.dataset.opick; OCR.pick = OCR.pick === i ? null : i; }
+    else if (t.dataset.oask != null) { const R = Object.assign({}, OCR.result || {}, { kind: OCR.ask.kind, dg: t.dataset.oask, len: OCR.ask.len }); applyResult(R, false); }
+    else if (a === 'open' || a === 'close') { OCR.open = a === 'open'; store.set('dd.dockOpen', OCR.open); }
+    else if (a === 'connect') { ocrConnect(); return; }
+    else if (a === 'scan') { ocrScan(false); return; }
+    else if (a === 'stop') ocrStop();
+    else if (a === 'auto') { OCR.auto = !OCR.auto; clearInterval(OCR.timer); if (OCR.auto) { OCR.timer = setInterval(() => ocrScan(true), 2500); ocrScan(true); } }
+    else if (a === 'media') mediaToggle();
+    else if (a === 'noregion') { OCR.region = null; store.set('dd.ocrRegion', null); }
+    else if (a === 'save') { if (OCR.last) OCR.last.toBlob(b => { const u = URL.createObjectURL(b); const l = document.createElement('a'); l.href = u; l.download = 'dd-capture-' + Date.now() + '.png'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); }); }
+    else if (a === 'clearalias') { if (confirm('등록한 글자를 모두 지울까요?')) { aliases = {}; store.set('dd.ocrAlias', aliases); } }
+    dock();
+  });
+  document.addEventListener('change', e => { if (e.target.id !== 'oteach' || !e.target.value || OCR.pick == null) return; const k = normT(OCR.lines[OCR.pick]); if (k.length >= 2) { aliases[k] = e.target.value; store.set('dd.ocrAlias', aliases); } OCR.pick = null; OCR.result = classify(OCR.lines); applyResult(OCR.result, false); dock(); });
+  document.addEventListener('keydown', e => { if (e.key === 'F8') { e.preventDefault(); ocrScan(false); } });
+  // 크롬 확장(전역 단축키)이 보내는 신호
+  window.addEventListener('message', e => { if (e.source !== window || !e.data || e.data.ddCapture !== 1) return; if (parseHash().view !== 'hud') { history.pushState(null, '', '#/hud'); render(false); } ocrScan(false); });
+  // 스크린샷 붙여 넣기
+  document.addEventListener('paste', e => { const it = Array.from((e.clipboardData || {}).items || []).find(i => i.type.startsWith('image/')); if (!it) return; e.preventDefault(); const img = new Image(); img.onload = () => ocrRun(img, img.naturalWidth, img.naturalHeight, false); img.src = URL.createObjectURL(it.getAsFile()); });
+  let drag = null;
+  document.addEventListener('pointerdown', e => { const p = e.target.closest('#ocrprev'); if (!p) return; e.preventDefault(); const b = p.getBoundingClientRect(); drag = { b, x0: (e.clientX - b.left) / b.width, y0: (e.clientY - b.top) / b.height, el: p }; });
+  document.addEventListener('pointermove', e => { if (!drag) return; const cl = v => Math.min(1, Math.max(0, v)); const x = cl((e.clientX - drag.b.left) / drag.b.width), y = cl((e.clientY - drag.b.top) / drag.b.height);
+    drag.r = { x: Math.min(x, drag.x0), y: Math.min(y, drag.y0), w: Math.abs(x - drag.x0), h: Math.abs(y - drag.y0) }; let box = drag.el.querySelector('i'); if (!box) { box = document.createElement('i'); drag.el.appendChild(box); }
+    box.style.cssText = 'left:' + drag.r.x * 100 + '%;top:' + drag.r.y * 100 + '%;width:' + drag.r.w * 100 + '%;height:' + drag.r.h * 100 + '%'; });
+  document.addEventListener('pointerup', () => { if (!drag) return; const r = drag.r; drag = null; if (r && r.w > 0.03 && r.h > 0.02) { OCR.region = r; store.set('dd.ocrRegion', r); dock(); } });
+  window.ddOcr = { recognizeCanvas, classify, run: ocrRun };
+  dock();
+
+  // ================= 오버레이: 전체 화면 · 3D · 캡처 위아래 여백 활용 =================
+  const HUD = { screen: store.get('dd.hudScreen', 'auto'), edit: false, stage: null, layer: null, tr: null, sel: null, info: null, busy: false, typer: null, fresh: false };
+  // 기본 영역: 영문 원본 UI(16:9) 기준 좌표. 모드나 해상도에 따라 다르면 영역 편집으로 고친다.
+  const cell = (role, col, row) => ({ role, x: 0.49 + col * 0.0558, y: row ? 0.311 : 0.151, w: 0.045, h: 0.129 });
+  const DEFAULT_ZONES = {
+    provision: [{ role: 'dg', x: 0.58, y: 0.082, w: 0.29, h: 0.05 }, { role: 'len', x: 0.58, y: 0.082, w: 0.29, h: 0.05 },
+      cell('item:Food', 0, 0), cell('item:Shovel', 1, 0), cell('item:Antivenom', 2, 0), cell('item:Bandage', 3, 0), cell('item:Medicinal Herbs', 4, 0), cell('item:Skeleton Key', 5, 0), cell('item:Holy Water', 0, 1), cell('item:Laudanum', 1, 1), cell('item:Torch', 2, 1)],
+    map: [{ role: 'len', x: 0.085, y: 0.455, w: 0.2, h: 0.065 }, { role: 'tag:darkest', x: 0.66, y: 0.115, w: 0.13, h: 0.04 }, { role: 'tag:courtyard', x: 0.33, y: 0.175, w: 0.13, h: 0.04 }, { role: 'tag:ruins', x: 0.535, y: 0.225, w: 0.1, h: 0.04 }, { role: 'tag:warrens', x: 0.345, y: 0.35, w: 0.1, h: 0.04 }, { role: 'tag:cove', x: 0.71, y: 0.375, w: 0.1, h: 0.04 }, { role: 'tag:weald', x: 0.505, y: 0.505, w: 0.1, h: 0.04 }],
+    dungeon: [], hero: [{ role: 'hero', x: 0.085, y: 0.185, w: 0.24, h: 0.05 }],
+  };
+  let zones = store.get('dd.zones2', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
+  const saveZones = () => store.set('dd.zones2', zones);
+  const SCREENS = [['auto', '자동'], ['map', '원정 선택'], ['provision', '보급품'], ['hero', '영웅 정보'], ['dungeon', '탐험 중']];
+  const PROV9 = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom', 'Laudanum'];
+  const DG_SHORT = { ruins: '중독 ○ · 출혈 ✕', weald: '출혈 ○ · 중독 ✕', warrens: '출혈 ○ · 중독 ✕', cove: '중독 ○ · 출혈 ✕', courtyard: '출혈 ○ · 중독 ✕', farmstead: '광역 · 지속력', darkest: '스트레스 · 이형' };
+  function rolesOf(screen) {
+    if (screen === 'map') return [['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
+    if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
+    if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳']];
+    return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
+  }
+  const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
+  const READ_ROLES = ['dg', 'len', 'curio', 'hero'];
+  // 직접 그린 안내 캐릭터 "까마귀 서기" (이 사이트 고유 캐릭터)
+  const MASCOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 130"><ellipse cx="60" cy="122" rx="34" ry="6" fill="#000" opacity=".45"/><path d="M28 112c-6-30 4-62 32-62s38 32 32 62z" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M40 112c-2-18 2-34 20-34s22 16 20 34z" fill="#2a2732"/><circle cx="60" cy="40" r="26" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M52 44l-30 10 30 6z" fill="#d6a64a" stroke="#8a6a26" stroke-width="1.5"/><circle cx="68" cy="34" r="9" fill="#f3ead6"/><circle cx="70" cy="35" r="4" fill="#111"/><circle cx="68" cy="34" r="11.5" fill="none" stroke="#d6a64a" stroke-width="2.5"/><path d="M78 43q6 14 2 30" fill="none" stroke="#d6a64a" stroke-width="1.5"/><path d="M44 16l8 8M60 10v10M76 16l-7 8" stroke="#1c1a22" stroke-width="5" stroke-linecap="round"/><rect x="66" y="84" width="34" height="24" rx="3" fill="#e9dfc6" stroke="#8a6a26" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M72 92h20M72 98h20M72 104h12" stroke="#8a7a5a" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M30 84q-14 8-10 26 10-4 16-14z" fill="#16141b" stroke="#3a3542" stroke-width="2"/></svg>';
+
+  // 장식 글꼴은 한두 글자씩 틀리게 읽히므로, 긴 글자열 안에서 비슷한 조각을 찾는다
+  function fuzzyIn(hay, w, maxD) { if (hay.includes(w)) return true; if (w.length < 5) return false; maxD = maxD == null ? (w.length >= 9 ? 2 : 1) : maxD;
+    for (let L = w.length - 1; L <= w.length + 1; L++) for (let i = 0; i + L <= hay.length; i++) if (hay[i] === w[0] || hay[i + 1] === w[1]) { if (lev(hay.substr(i, L), w) <= maxD) return true; } return false; }
+  function readDungeon(text) { const t = normT(text); let best = null; DUNGEONS.forEach(d => { [d.en, d.ko, overrides[d.en]].concat(d.alt || []).filter(Boolean).map(normT).forEach(w => { if (w.length >= 2 && (w.length >= 5 ? fuzzyIn(t, w) : t.includes(w)) && (!best || w.length > best.n)) best = { id: d.id, n: w.length }; }); }); return best && best.id; }
+  function readLen(text) { const toks = String(text).split(/[\s|]+/).map(normT).filter(Boolean); let r = null; LEN_WORDS.forEach((ws, i) => { if (r == null && ws.some(w => toks.some(t => t === w || (t.length >= 3 && w.length >= 4 && w.startsWith(t))))) r = i; }); return r; }
+  function readHero(text) { const t = normT(text); let best = null; Object.keys(HERO_GUIDE).forEach(h => { [h, HERO_GUIDE[h].ko, overrides[h]].concat(HERO_GUIDE[h].alt).filter(Boolean).map(normT).forEach(w => { if (w.length >= 2 && (w.length >= 5 ? fuzzyIn(t, w) : t.includes(w)) && (!best || w.length > best.n)) best = { h, n: w.length }; }); }); return best && best.h; }
+  function detectScreen(lines) { const a = normT(lines.join(' ')); const has = (w, d) => fuzzyIn(a, w, d);
+    if (has('estatemap') || (has('goals', 0) && has('rewards'))) return 'map';
+    if (has('sellback', 1) || has('inventoryto') || has('되팔기', 0)) return 'provision';
+    if (['quirks', 'equipment', 'resistances', 'campingskills', 'combatskills', 'preferredposition', 'basestats'].filter(w => has(w)).length >= 2) return 'hero';
+    return null; }
+
+  async function recognizeDetailed(cv) {
+    const w = await ensureWorker(); const { data } = await w.recognize(cv);
+    const f = b => ({ x: b.x0 / cv.width, y: b.y0 / cv.height, w: (b.x1 - b.x0) / cv.width, h: (b.y1 - b.y0) / cv.height });
+    return { lines: (data.lines || []).map(l => ({ t: l.text.trim(), n: normT(l.text), b: f(l.bbox) })).filter(l => l.n.length >= 2), words: (data.words || []).map(x => ({ t: x.text, n: normT(x.text), b: f(x.bbox) })).filter(x => x.n.length >= 1) };
+  }
+  function cropCanvas(src, z) {
+    const sx = z.x * src.width, sy = z.y * src.height, sw = Math.max(4, z.w * src.width), sh = Math.max(4, z.h * src.height);
+    const sc = Math.min(6, Math.max(1.5, 90 / sh)); const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
+    const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.filter = 'grayscale(1) contrast(1.5)'; cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height); return cv;
+  }
+  function findBox(det, keys) {
+    const w = det.words.find(x => keys.some(k => x.n === k || (k.length >= 3 && x.n.includes(k)) || (k.length >= 5 && x.n.length >= 4 && Math.abs(x.n.length - k.length) <= 1 && lev(x.n, k) <= 1))); return w ? w.b : null;
+  }
+  async function hudAnalyze() {
+    const src = OCR.last; if (!src) return;
+    const sc = src.width > 2200 ? 2200 / src.width : (src.width < 1300 ? Math.min(3, 2200 / src.width) : 1);
+    const cv = document.createElement('canvas'); cv.width = Math.round(src.width * sc); cv.height = Math.round(src.height * sc);
+    const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, 0, 0, cv.width, cv.height);
+    const det = await recognizeDetailed(cv); const lines = det.lines.map(l => l.t); const all = lines.join(' ');
+    OCR.lines = lines.filter(l => /[a-z가-힣]{3}/i.test(l)).slice(0, 24); const R = classify(lines);
+    let screen = HUD.screen !== 'auto' ? HUD.screen : (detectScreen(lines) || ({ provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind]) || null);
+    const I = { screen, dg: null, len: readLen(all), curio: R.curio, hero: null, det };
+    if (screen === 'hero') I.hero = readHero(all);
+    if (screen === 'provision' || screen === 'dungeon') I.dg = R.dg;
+    for (const z of (screen && zones[screen]) || []) {   // 지정한 영역만 따로 읽기 (더 정확)
+      if (!READ_ROLES.includes(z.role)) continue;
+      const zt = (await recognizeCanvas(cropCanvas(src, z))).join(' '); z._read = zt;
+      if (z.role === 'dg') I.dg = readDungeon(zt) || I.dg;
+      if (z.role === 'len') { const l = readLen(zt); if (l != null) I.len = l; }
+      if (z.role === 'hero') I.hero = readHero(zt) || I.hero;
+      if (z.role === 'curio') { const m = matchCurio([zt]); if (m) I.curio = m.en; }
+    }
+    if (screen === 'map' && fuzzyIn(normT(all), 'darkestlvl', 1)) I.dg = 'darkest';
+    HUD.info = I; HUD.fresh = true; hudBuild();
+  }
+  function itemT2(id) { const en = ITEM_EN[id] || id; const p = PROV[en]; return id === 'hand' ? '맨손' : koOf(en, p ? p.ko : ITEM_KO[id]); }
+  // 분석 결과 → 캡처 위 말풍선(calls) + 위/아래 패널 + 캐릭터 대사
+  function hudBuild() {
+    const I = HUD.info; if (!I) return; I.calls = []; I.ask = false; I.top = ''; I.bottom = ''; const zs = zones[I.screen] || []; const zone = role => zs.find(z => z.role === role);
+    const LEN = ['짧은', '중간', '긴'];
+    if (!I.screen) { I.say = '어떤 화면인지 알아보지 못했습니다. 위에서 화면 종류를 골라 주십시오.'; return; }
+    if (I.screen === 'hero') {
+      const h = I.hero; if (!h) { I.ask = 'hero'; I.say = '어느 영웅인지 읽지 못했습니다. 위에서 골라 주십시오.'; return; }
+      const g = HERO_GUIDE[h], b = g.builds[0];
+      I.top = '<div class="row"><h2 class="hudh">' + heroT(h) + '</h2><span class="tag gold">' + esc(g.role) + '</span>' + g.pos.map(p => '<span class="tag">' + p + '열</span>').join('') + '</div><p>' + esc(g.summary) + '</p>';
+      I.bottom = '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div></div>';
+      I.calls.push({ x: 0.5, y: 0.3, cls: 'card ok', html: '<b>추천 스킬</b><br>' + b.skills.map(k => esc(koOf(k, (SKILL[h + '|' + k] || {}).ko))).join(' · ') });
+      I.say = heroKo(h) + '입니다. ' + g.pos.join('·') + '열에 세우는 영웅이고, ' + b.note; return;
+    }
+    if (I.screen === 'dungeon') {
+      const c = I.curio && CURIOS.find(x => x.en === I.curio);
+      if (!c) { I.say = '기물 이름을 읽지 못했습니다. 기물에 마우스를 올린 상태로 다시 인식하거나, 영역 편집에서 이름이 뜨는 자리를 지정해 주십시오.'; I.bottom = '<p class="dim">아래에서 직접 고를 수도 있습니다.</p><div class="cgrid">' + CURIOS.filter(x => x.dg === (ctx.dg || run.dg) || x.dg === 'all').map(x => '<button class="ctile" data-hcurio="' + esc(x.en) + '"><span class="cimg">' + pic(x.img, 160, '') + '</span><span class="cname">' + esc(koOf(x.en, x.ko)) + '</span></button>').join('') + '</div>'; return; }
+      const v = verdict(c); const act = v.item ? itemT2(v.item) + ' 사용' : v.text; const b = zone('info') || zone('curio') || findBox(I.det, wordsOf(c.en.replace(/\s*\(.*\)/, ''), c.ko));
+      I.calls.push({ x: b ? b.x : 0.4, y: b ? b.y + (b.h || 0) + 0.015 : 0.3, cls: 'card ' + v.cls, html: '<b>' + esc(koOf(c.en, c.ko)) + '</b><br>' + esc(act) });
+      I.top = '<div class="row"><h2 class="hudh">' + T(c.en, c.ko) + '</h2><span class="verdict ' + v.cls + '">' + esc(act) + '</span></div>'; I.bottom = curioCard(c);
+      I.say = koOf(c.en, c.ko) + '입니다. ' + (v.item ? itemT2(v.item) + '을(를) 쓰십시오.' + (v.handBad ? ' 맨손으로 건드리면 손해 볼 확률이 높습니다.' : '') : v.cls === 'no' ? '건드리지 않는 편이 좋겠습니다.' : v.cls === 'gamble' ? '운에 맡기는 물건입니다. 여유가 있을 때만 건드리십시오.' : '맨손으로 조사하셔도 됩니다.');
+      if (c.dg !== 'all') { ctx.dg = c.dg; store.set('dd.ctx', ctx); } return;
+    }
+    if (I.screen === 'map') {   // 던전 이름표마다 한 줄 요약을 붙인다 (누르면 그 던전 선택)
+      DUNGEONS.forEach(d => { const b = findBox(I.det, wordsOf(d.en, d.ko, d.alt).concat(d.id === 'courtyard' ? ['courtyard'] : [])) || zone('tag:' + d.id); if (!b) return;
+        I.calls.push({ x: b.x, y: b.y + b.h + 0.004, cls: 'tagc' + (I.dg === d.id ? ' on' : ''), attr: 'data-hdg="' + d.id + '"', html: '<b>' + esc(koOf(d.en, d.ko)) + '</b> ' + DG_SHORT[d.id] }); });
+    }
+    const dg = I.dg || (I.screen === 'provision' ? ctx.dg : null); const len = I.len != null ? I.len : (ctx.len != null ? ctx.len : 0);
+    if (!dg || !DG[dg]) { I.ask = 'dg'; I.say = I.screen === 'map' ? '지도에서 고르신 던전이 어디인지는 글자로 알 수 없습니다. 이름표나 위의 버튼을 눌러 알려 주십시오.' : '어느 던전으로 가시는지 알려 주십시오.'; I.top = '<p class="dim">던전을 고르면 여기에 요약이 나옵니다.</p>'; return; }
+    const d = DG[dg]; ctx = { dg, len }; store.set('dd.ctx', ctx); I.dg = dg; I.len = len; bld.dg = dg;
+    const tags = '<div class="chips">' + d.dmg.good.map(x => '<span class="tag good">' + esc(x) + '</span>').join('') + d.dmg.bad.map(x => '<span class="tag bad">✕ ' + esc(x) + '</span>').join('') + '</div>';
+    if (I.screen === 'provision') {
+      PROV9.forEach(k => { const n = (d.provisions[k] || [k === 'Laudanum' ? (len ? 1 : 0) : 0, k === 'Laudanum' ? 1 : 0, k === 'Laudanum' ? 2 : 0])[len]; const z = zone('item:' + k); if (z) I.calls.push({ x: z.x + z.w / 2, y: z.y, cls: 'badge center ' + (n ? 'use' : 'off'), html: n ? '×' + n : '–' }); });
+      I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + ' · ' + LEN[len] + ' 원정 보급품</h2></div><div class="provrow">' + PROV9.map(k => { const n = (d.provisions[k] || [0, 0, 0])[len] || (k === 'Laudanum' ? [0, 1, 2][len] : 0); const p = PROV[k]; return '<span class="pv' + (n ? '' : ' zero') + '">' + pic(p.img, 0, 'ico') + '<b>' + (n ? '×' + n : '–') + '</b><small>' + esc(koOf(p.en, p.ko)) + '</small></span>'; }).join('') + '</div>';
+      I.bottom = '<div class="two"><div class="card"><h3>챙길 이유</h3>' + ul(d.tips) + '</div><div class="card"><h3>먼저 잡을 적</h3>' + ul(d.threats) + '</div></div>';
+      I.say = koOf(d.en, d.ko) + ' · ' + LEN[len] + ' 원정 권장 수량을 칸마다 적어 두었습니다. ' + (d.tips[0] || ''); return;
+    }
+    const party = PARTIES.find(p => p.id === d.parties[0]);
+    I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + (I.len != null ? ' · ' + LEN[len] + ' 원정' : '') + '</h2></div>' + tags + '<div class="small dim">추천 영웅</div><div class="chips">' + heroChips(d.heroes.good, 'good') + '</div>';
+    I.bottom = (party ? partyCard(party, false) : '') + '<p class="small"><a href="#/parties?tag=' + dg + '">→ 다른 추천 파티</a> · <a href="#/plan/' + dg + '/' + len + '">→ 원정 준비</a></p>';
+    I.say = koOf(d.en, d.ko) + ' 원정이시군요. ' + (d.threats[0] || '') + ' 추천 파티를 아래에 펼쳐 두었습니다.';
+  }
+
+  V.hud = function () {
+    const I = HUD.info; const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : null); const es = scr || 'provision';
+    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a>' + SCREENS.map(([v, l]) => '<button class="chip sm' + (HUD.screen === v ? ' on' : '') + (v !== 'auto' && scr === v && HUD.screen === 'auto' ? ' cur' : '') + '" data-hscreen="' + v + '">' + l + '</button>').join('') + '<span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
+    if (I && scr !== 'dungeon' && scr !== 'hero' && scr) o += '<div class="hudbar">' + (I.ask === 'dg' ? '<b class="askb">던전 선택 ▸</b>' : '') + DUNGEONS.map(d => '<button class="chip sm' + (I.dg === d.id ? ' on' : '') + '" data-hdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '<span class="sep"></span>' + ['짧은', '중간', '긴'].map((l, i) => '<button class="chip sm' + (I.len === i ? ' on' : '') + '" data-hlen="' + i + '">' + l + '</button>').join('') + '</div>';
+    if (I && scr === 'hero') o += '<div class="hudbar">' + (I.ask === 'hero' ? '<b class="askb">영웅 선택 ▸</b>' : '') + Object.keys(HERO_GUIDE).map(h => '<button class="chip sm' + (I.hero === h ? ' on' : '') + '" data-hhero="' + esc(h) + '">' + esc(heroKo(h)) + '</button>').join('') + '</div>';
+    if (HUD.edit) o += '<div class="hudbar"><b>' + (SCREENS.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
+    o += '<div class="hudpanel top">' + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처가 없습니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결해 인식하거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>')) + '</div>';
+    o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls">' + (!HUD.edit && I ? I.calls.map((c, i) => '<div class="call ' + c.cls + '" ' + (c.attr || '') + ' style="left:' + (c.x * 100).toFixed(2) + '%;top:' + (c.y * 100).toFixed(2) + '%;animation-delay:' + (i * 40) + 'ms">' + c.html + '</div>').join('') : '') + '</div></div></div>';
+    o += '<div class="hudpanel bottom"><div class="mascot"><div class="mimg" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div><div class="bubble" id="hudsay">' + esc((I && I.say) || '화면을 보여 주시면 필요한 것만 짚어 드리겠습니다.') + '</div></div>' + ((I && I.bottom) || '') + '</div></div>';
+    return o;
+  };
+  async function hudMount() {
+    const el = $('#hudstage'); if (!el) return;
+    if (!window.Konva) { try { await loadScript(new URL('vendor/konva/konva.min.js', location.href.split('#')[0]).href); } catch (e) { return; } }
+    const sc = $('#hudscene'); if (!sc) return; const src = OCR.last; const ar = src ? src.height / src.width : 9 / 16;
+    let W = window.innerWidth, H = W * ar; const maxH = window.innerHeight * (window.innerHeight > window.innerWidth ? 0.5 : 0.6); if (H > maxH) { H = maxH; W = H / ar; }
+    const d3 = $('#hud3d'); d3.style.width = W + 'px'; d3.style.height = H + 'px';
+    if (HUD.stage) HUD.stage.destroy(); HUD.stage = new Konva.Stage({ container: 'hudstage', width: W, height: H }); HUD.layer = new Konva.Layer(); HUD.stage.add(HUD.layer); hudDraw();
+    const say = $('#hudsay'); clearInterval(HUD.typer);
+    if (say && HUD.fresh) { const full = say.textContent; let n = 0; say.style.minHeight = say.offsetHeight + 'px'; say.textContent = ''; HUD.typer = setInterval(() => { n += 2; say.textContent = full.slice(0, n); if (n >= full.length) clearInterval(HUD.typer); }, 16); }
+    HUD.fresh = false;
+  }
+  function hudDraw() {
+    const st = HUD.stage, L = HUD.layer; if (!st) return; L.destroyChildren(); const W = st.width(), H = st.height(); const src = OCR.last; const F = Math.max(11, Math.round(W / 90));
+    if (src) L.add(new Konva.Image({ image: src, width: W, height: H })); else L.add(new Konva.Rect({ width: W, height: H, fill: '#15110f' }));
+    L.add(new Konva.Rect({ width: W, height: H, fill: '#000', opacity: src ? (HUD.edit ? 0.1 : 0.3) : 0, listening: false }));
+    if (HUD.edit) {
+      const I = HUD.info; const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : 'provision'); HUD.tr = new Konva.Transformer({ rotateEnabled: false, keepRatio: false, borderStroke: '#d6a64a', anchorStroke: '#d6a64a', anchorSize: 9 });
+      (zones[scr] || []).forEach((z, i) => { const read = READ_ROLES.includes(z.role);
+        const g = new Konva.Group({ x: z.x * W, y: z.y * H, draggable: true }); const r = new Konva.Rect({ width: z.w * W, height: z.h * H, stroke: read ? '#7fd6d0' : '#d6a64a', strokeWidth: 2, dash: read ? [6, 4] : [], fill: read ? 'rgba(127,214,208,.12)' : 'rgba(214,166,74,.16)' });
+        const t = new Konva.Text({ text: roleLabel(scr, z.role).replace(' 읽는 곳', '').replace(' 이름표 자리', '').replace(' 칸', '') + (z._read ? '\n' + z._read.slice(0, 26) : ''), fontSize: F * 0.8, fill: '#fff', padding: 2, listening: false, shadowColor: '#000', shadowBlur: 3, shadowOpacity: 1, y: read && z.role === 'len' ? z.h * H : 0 });
+        g.add(r); g.add(t); L.add(g);
+        const commit = () => { z.x = g.x() / W; z.y = g.y() / H; z.w = r.width() * r.scaleX() / W; z.h = r.height() * r.scaleY() / H; r.width(r.width() * r.scaleX()); r.height(r.height() * r.scaleY()); r.scale({ x: 1, y: 1 }); saveZones(); };
+        g.on('dragend', commit); r.on('transformend', () => { g.x(g.x() + r.x()); g.y(g.y() + r.y()); r.position({ x: 0, y: 0 }); commit(); });
+        g.on('mousedown touchstart', () => { HUD.sel = i; HUD.tr.nodes([r]); L.batchDraw(); }); if (HUD.sel === i) HUD.tr.nodes([r]); });
+      L.add(HUD.tr);
+    }
+    L.draw();
+  }
+  // 3D 기울임: 마우스를 따라 캡처 판이 기울고 말풍선은 앞으로 떠 보인다
+  document.addEventListener('pointermove', e => { const s = e.target.closest && e.target.closest('#hudscene'); const d3 = $('#hud3d'); if (!d3 || HUD.edit) return; if (!s) { d3.style.transform = ''; return; }
+    const b = d3.getBoundingClientRect(); const x = (e.clientX - b.left) / b.width - 0.5, y = (e.clientY - b.top) / b.height - 0.5; d3.classList.remove('enter'); d3.style.transform = 'rotateX(' + (-y * 9).toFixed(2) + 'deg) rotateY(' + (x * 12).toFixed(2) + 'deg)'; });
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-hscreen],[data-hud],[data-hdg],[data-hlen],[data-hhero],[data-hcurio]'); if (!t) return; const d = t.dataset; const I = HUD.info;
+    const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : 'provision');
+    if (d.hscreen != null) { HUD.screen = d.hscreen; store.set('dd.hudScreen', HUD.screen); HUD.sel = null; if (OCR.last) { hudRun(); return; } }
+    else if (d.hdg != null && I) { I.dg = d.hdg; ctx.dg = d.hdg; hudBuild(); }
+    else if (d.hlen != null && I) { I.len = +d.hlen; ctx.len = I.len; hudBuild(); }
+    else if (d.hhero != null && I) { I.hero = d.hhero; hudBuild(); }
+    else if (d.hcurio != null && I) { I.curio = d.hcurio; hudBuild(); }
+    else if (d.hud === 'rescan') { hudRun(); return; }
+    else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
+    else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
+    else if (d.hud === 'mascot') { if (store.get('dd.mascot', null) && confirm('기본 캐릭터로 되돌릴까요? (취소를 누르면 다른 그림을 고릅니다)')) { store.set('dd.mascot', null); render(true); return; }
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = () => { const f = inp.files[0]; if (!f) return; const img = new Image(); img.onload = () => { const sc = Math.min(1, 240 / Math.max(img.naturalWidth, img.naturalHeight)); const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * sc); cv.height = Math.round(img.naturalHeight * sc); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); store.set('dd.mascot', cv.toDataURL('image/png')); render(true); }; img.src = URL.createObjectURL(f); }; inp.click(); return; }
+    else if (d.hud === 'addzone') { const role = $('#hrole').value; zones[scr] = zones[scr] || []; zones[scr].push({ role, x: 0.42, y: 0.42, w: role.startsWith('item:') ? 0.045 : 0.16, h: role.startsWith('item:') ? 0.13 : 0.05 }); HUD.sel = zones[scr].length - 1; saveZones(); }
+    else if (d.hud === 'delzone') { if (HUD.sel != null && zones[scr]) { zones[scr].splice(HUD.sel, 1); HUD.sel = null; saveZones(); } }
+    else if (d.hud === 'reset') { if (!confirm('이 화면의 영역을 기본값으로 되돌릴까요?')) return; zones[scr] = JSON.parse(JSON.stringify(DEFAULT_ZONES[scr] || [])); saveZones(); }
+    else if (d.hud === 'export') { prompt('영역 정보입니다. 복사해 보관하거나 공유하세요.', JSON.stringify(zones, (k, v) => k === '_read' ? undefined : (typeof v === 'number' ? Math.round(v * 10000) / 10000 : v))); return; }
+    else if (d.hud === 'import') { const s = prompt('내보낸 영역 정보를 붙여 넣으세요.'); if (!s) return; try { const o = JSON.parse(s); if (o && typeof o === 'object') { zones = Object.assign(JSON.parse(JSON.stringify(DEFAULT_ZONES)), o); saveZones(); } } catch (err) { alert('형식이 올바르지 않습니다.'); return; } }
+    if (I && HUD.edit === false && d.hud === 'edit') hudBuild();
+    render(true);
+  });
+  async function hudRun() { if (HUD.busy || !OCR.last) { render(true); return; } HUD.busy = true; OCR.status = '분석 중…'; dock(); try { await hudAnalyze(); OCR.status = '오버레이 갱신됨'; } catch (e) { OCR.status = '분석 실패: ' + e.message; } HUD.busy = false; dock(); render(true); }
+  window.addEventListener('resize', () => { if (parseHash().view === 'hud') hudMount(); });
+
   // ================= 라우터 =================
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, ''); const [path, qs] = h.split('?');
@@ -518,6 +875,7 @@
     const key = r.view + '/' + r.args.join('/');
     if (!keep && key !== lastView) window.scrollTo(0, 0);
     lastView = key;
+    if (r.view === 'hud') hudMount();
     if (r.view === 'parties' && r.q.id) { const el = $('#party-' + r.q.id); if (el) el.scrollIntoView({ block: 'start' }); }
     $('#modeBtn').textContent = { both: '한/영', ko: '한글', en: 'ENG' }[mode];
     document.title = (app.querySelector('h1') ? app.querySelector('h1').textContent.replace(/\s+/g, ' ').trim() + ' · ' : '') + '다키스트 던전 공략 수첩';
