@@ -815,7 +815,7 @@
     if (screen === 'map') {
       const na = normT(all); I.boxes = {}; DUNGEONS.forEach(d => { const b = findBox(det, wordsOf(d.en, d.ko, d.alt).concat(d.id === 'courtyard' ? ['courtyard'] : [])) || (zones.map || []).find(z => z.role === 'tag:' + d.id); if (b) I.boxes[d.id] = b; });
       const bm = BOSSES.find(b => DG[b.group] && wordsOf(b.en, b.ko, b.alt).some(w => w.length >= 3 && (na.includes(w) || (I.questText || '').includes(w)))); if (bm) { I.boss = bm.id; if (!I.dg) I.dg = bm.group; }
-      if (!I.dg) { const sp = findSplatter(src); if (sp) { let best = null; Object.keys(I.boxes).forEach(id => { const b = I.boxes[id]; const dx = sp.x - (b.x + b.w / 2), dy = (sp.y - (b.y + b.h + 0.07)) * (src.height / src.width); const dist = Math.hypot(dx, dy); if (!best || dist < best.dist) best = { id, dist }; }); if (best && best.dist < 0.12) { I.dg = best.id; I.guess = true; } } }
+      if (!I.dg) { const sp = findSplatter(src); if (sp) { let best = null; Object.keys(I.boxes).forEach(id => { const b = I.boxes[id]; const r = b.x + b.w, dx = Math.max(0, r - 0.13 - sp.x, sp.x - r - 0.02), dy = (sp.y - (b.y + b.h + 0.055)) * (src.height / src.width);   /* 원정 표식은 이름표 오른쪽 끝에서 왼쪽으로 늘어선다 */ const dist = Math.hypot(dx, dy); if (!best || dist < best.dist) best = { id, dist }; }); if (best && best.dist < 0.12) { I.dg = best.id; I.guess = true; } } }
     }
     I.src = src; HUD.info = I; HUD.fresh = true; hudBuild();
     if (I.screen) HUD.cache[I.screen] = { cv: src, info: I }; if (I.screen) persistCap('stage:' + I.screen, src, I);
@@ -967,13 +967,29 @@
     const opts = '<option value="">무슨 기벽인지 지정…</option><option value="quirk:-">고정·제거 대상 아님</option><optgroup label="꼭 고정할 기벽">' + QUIRKS.filter(q => q.kind === 'lock').map(q => '<option value="quirk:' + esc(q.en) + '">' + esc(q.ko + ' (' + q.en + ')') + '</option>').join('') + '</optgroup><optgroup label="꼭 지울 기벽">' + QUIRKS.filter(q => q.kind === 'remove').map(q => '<option value="quirk:' + esc(q.en) + '">' + esc(q.ko + ' (' + q.en + ')') + '</option>').join('') + '</optgroup>';
     return '<div class="card"><h3>기벽</h3>' + qs.map((q, i) => { const m = matchQuirk(q.t); return '<div class="qrow"><span>' + esc(q.t) + '</span>' + (m && !m.none ? '<span class="tag ' + (m.kind === 'lock' ? 'good' : 'bad') + '">' + (m.kind === 'lock' ? '고정 추천' : '제거 추천') + ' · ' + esc(m.en) + '</span><span class="small dim">' + esc(m.why) + '</span>' : m && m.none ? '<span class="small dim">대상 아님</span>' : '<select class="field" data-qteach="' + i + '">' + opts + '</select>') + '</div>'; }).join('') + '<p class="small dim">게임의 한글 이름이 이 가이드와 다르면 자동으로 못 찾습니다. 한 번 지정해 두면 다음부터는 그 이름으로 찾습니다.</p></div>'; }
   function heroFix(I, ask) { return '<label class="fixhero' + (ask ? ' ask' : '') + '"><span>' + (ask ? '이 캡처의 영웅을 골라 주세요' : '영웅이 다르게 읽혔으면 고치기') + '</span><select class="field" data-hfix="1"><option value="">' + (ask ? '영웅 선택…' : '이 캡처의 영웅 바꾸기…') + '</option>' + Object.keys(HERO_GUIDE).map(h => '<option value="' + esc(h) + '"' + (I.hero === h ? ' disabled' : '') + '>' + esc(heroKo(h)) + '</option>').join('') + '</select></label>'; }
-  function heroRoster() {   // 이번 원정에서 확인한 영웅: 앞의 4명은 일행으로 점검, 나머지는 옆에 후보로 둔다. 누르면 그 영웅을 찍어 둔 캡처가 나온다
-    const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
-    const party = hs.slice(0, 4), extra = hs.slice(4); const { A, slots } = checkHeroes(party, ctx.dg); const cur = HUD.info && HUD.info.hero;
-    const tile = (h, label) => { const c = HUD.heroCache[h]; return '<div class="rs' + (h === cur ? ' on' : '') + (c ? ' has' : '') + '" data-hroster="' + esc(h) + '" title="' + (c ? '찍어 둔 캡처 보기' : '캡처 없음 — 추천 정보만 보기') + '"><button class="rx" data-hrm="' + esc(h) + '" title="목록에서 빼기">✕</button><span class="rmv"><button data-hmv="' + esc(h) + ':-1" title="왼쪽(뒤 열)으로">◀</button><button data-hmv="' + esc(h) + ':1" title="오른쪽(앞 열)으로">▶</button></span><span class="port">' + (c && c.thumb ? '<img src="' + c.thumb + '" alt="">' : pic(HERO_DATA[h].img, 120, '')) + '</span><b>' + esc(heroKo(h)) + '</b><small>' + label + '</small></div>'; };
-    let o = '<div class="card roster"><div class="row"><h3>이번 원정 영웅 (' + hs.length + '명)</h3><button class="chip sm" data-hud="tobuilder">편성기에서 다듬기</button><button class="chip sm" data-hud="clearheroes">비우기</button></div><div class="rline">' + slots.map((h, i) => h ? tile(h, (4 - i) + '열') : '<div class="rs empty"><span class="port"></span><b class="dim">?</b><small>' + (4 - i) + '열</small></div>').join('') + (extra.length ? '<span class="rsep"></span>' + extra.map(h => tile(h, '후보')).join('') : '') + '</div>';
-    o += '<p class="small dim">게임의 일행 칸과 같은 순서입니다(왼쪽이 4열). 순서가 다르면 영웅 칸에 마우스를 올려 ◀ ▶로 옮기세요.</p>';
-    if (party.length >= 2) o += A.warn.concat(party.length >= 4 ? A.notes : []).slice(0, 4).map(x => '<div class="chk ' + (A.warn.includes(x) ? 'bad' : 'mid') + '">' + (A.warn.includes(x) ? '✕ ' : '△ ') + esc(x) + '</div>').join('') + (party.length >= 4 && !A.warn.length ? '<div class="chk ok">✓ 큰 문제는 보이지 않습니다.</div>' : '');
+  function scoreParty(order, dg) { const { A } = checkHeroes(order, dg); const d = DG[dg]; let sc = A.good.length * 2 - A.warn.length * 6 - A.notes.length * 1.5;
+    if (d) order.forEach(h => { if (d.heroes.good.includes(h)) sc += 2; if (d.heroes.bad.includes(h)) sc -= 3; }); return { sc, A }; }
+  function recommendParty(pool, dg) {   // pool 에서 4명과 자리(4열→1열)를 고른다
+    pool = pool.slice(0, 9); if (pool.length < 4) return null; let best = null; const n = pool.length;
+    const perms = a => a.length <= 1 ? [a] : a.flatMap((x, i) => perms(a.slice(0, i).concat(a.slice(i + 1))).map(r => [x].concat(r)));
+    for (let a = 0; a < n; a++) for (let b = a + 1; b < n; b++) for (let c = b + 1; c < n; c++) for (let e = c + 1; e < n; e++) {
+      const four = [pool[a], pool[b], pool[c], pool[e]]; if (four.filter(h => h === 'Flagellant').length > 1) continue;
+      perms(four).forEach(order => { if (order.some((h, i) => !HERO_GUIDE[h].pos.includes(4 - i))) return; const r = scoreParty(order, dg); if (!best || r.sc > best.sc) best = { order, sc: r.sc, A: r.A }; }); }
+    return best;
+  }
+  function heroRoster() {   // 영웅 확인 단계의 아래 영역: 지금 일행 → 추천 일행 → 후보
+    const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검하고, 5명 이상이면 그중에서 일행을 추천합니다.</p>';
+    const party = hs.slice(0, 4), extra = hs.slice(4); const { A, slots } = checkHeroes(party, ctx.dg); const cur = HUD.info && HUD.info.hero; const dgName = ctx.dg && DG[ctx.dg] ? koOf(DG[ctx.dg].en, DG[ctx.dg].ko) : null;
+    const tile = (h, label, mv) => { const c = HUD.heroCache[h]; return '<div class="rs' + (h === cur ? ' on' : '') + (c ? ' has' : '') + '" data-hroster="' + esc(h) + '" title="' + (c ? '찍어 둔 캡처 보기' : '캡처 없음 — 추천 정보만 보기') + '">' + (mv ? '<button class="rx" data-hrm="' + esc(h) + '" title="목록에서 빼기">✕</button><span class="rmv"><button data-hmv="' + esc(h) + ':-1" title="왼쪽(뒤 열)으로">◀</button><button data-hmv="' + esc(h) + ':1" title="오른쪽(앞 열)으로">▶</button></span>' : '') + '<span class="port">' + (c && c.thumb ? '<img src="' + c.thumb + '" alt="">' : pic(HERO_DATA[h].img, 120, '')) + '</span><b>' + esc(heroKo(h)) + '</b><small>' + label + '</small></div>'; };
+    const checks = (A, full) => A.warn.concat(full ? A.notes : []).slice(0, 4).map(x => '<div class="chk ' + (A.warn.includes(x) ? 'bad' : 'mid') + '">' + (A.warn.includes(x) ? '✕ ' : '△ ') + esc(x) + '</div>').join('') + (full && !A.warn.length ? '<div class="chk ok">✓ 큰 문제는 보이지 않습니다.</div>' : '');
+    let o = '<div class="card roster"><div class="row"><h3>지금 일행' + (dgName ? ' · ' + esc(dgName) : '') + '</h3><button class="chip sm" data-hud="tobuilder">편성기에서 다듬기</button><button class="chip sm" data-hud="clearheroes">비우기</button></div>';
+    o += '<div class="rline">' + slots.map((h, i) => h ? tile(h, (4 - i) + '열', true) : '<div class="rs empty"><span class="port"></span><b class="dim">?</b><small>' + (4 - i) + '열</small></div>').join('') + '</div><p class="small dim">게임의 일행 칸과 같은 순서입니다(왼쪽이 4열). 영웅 칸에 마우스를 올려 ◀ ▶로 옮기거나 ✕로 뺍니다.</p>';
+    if (party.length >= 2) o += checks(A, party.length >= 4);
+    const rec = hs.length >= 4 ? recommendParty(hs, ctx.dg) : null;
+    if (rec) { const same = rec.order.join('|') === party.join('|'); const cur4 = party.length === 4 ? scoreParty(party, ctx.dg).sc : -99;
+      if (same) o += '<div class="chk ok">✓ 지금 일행이 가진 영웅 ' + hs.length + '명 중 추천 구성과 같습니다.</div>';
+      else if (rec.sc > cur4 + 0.5) o += '<div class="recbox"><div class="row"><h3>추천 일행' + (dgName ? ' · ' + esc(dgName) + ' 기준' : '') + '</h3><button class="chip sm on" data-hud="applyrec">이 일행으로 정하기</button></div><div class="rline">' + rec.order.map((h, i) => tile(h, (4 - i) + '열', false)).join('') + '</div>' + rec.A.good.slice(0, 4).map(x => '<div class="chk ok">✓ ' + esc(x) + '</div>').join('') + checks(rec.A, false) + '<p class="small dim">가진 영웅 ' + hs.length + '명의 모든 조합과 자리를 편성기 규칙으로 비교해 고른 것입니다.' + (dgName ? '' : ' 던전을 고르면 그 던전과의 상성까지 반영합니다.') + '</p></div>'; }
+    if (extra.length) o += '<h3 class="subh">후보 (' + extra.length + '명)</h3><div class="rline">' + extra.map(h => tile(h, '후보', true)).join('') + '</div>';
     return o + '</div>';
   }
 
@@ -990,9 +1006,9 @@
     return o;
   };
   // 안내 캐릭터: 그림 높이의 1/3쯤은 캡처에 걸치고, 발끝은 말풍선 줄의 아래쪽 끝에 맞춘다 (그림 비율이 달라도 아래 내용을 덮지 않게)
-  function placeMascot() { const mw = $('.hudscene .mwrap'), row = $('.hudpanel.bottom .mascot'), sc = $('#hudscene'); if (!mw || !row || !sc) return;
-    const h = mw.getBoundingClientRect().height; if (!h) return; row.style.minHeight = Math.round(h * 0.66) + 'px';
-    const d = row.getBoundingClientRect().bottom - sc.getBoundingClientRect().bottom; mw.style.bottom = '0px'; mw.style.transform = 'translateY(' + Math.round(d) + 'px)'; }
+  function placeMascot() { const mw = $('.hudscene .mwrap'), row = $('.hudpanel.bottom .mascot'), sc = $('#hudscene'), d3 = $('#hud3d'); if (!mw || !row || !sc || !d3) return;
+    const h = mw.getBoundingClientRect().height; if (!h) return; const pad = sc.getBoundingClientRect().bottom - d3.getBoundingClientRect().bottom;   // 캡처 아래 여백
+    const below = Math.max(0, h * 0.5 - pad); row.style.minHeight = Math.round(below + 6) + 'px'; mw.style.bottom = '0px'; mw.style.transform = 'translateY(' + Math.round(below) + 'px)'; }
   async function hudMount() {
     const el = $('#hudstage'); if (!el) return;
     const base = new URL('vendor/', location.href.split('#')[0]).href;
@@ -1149,6 +1165,7 @@
     else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
     else if (d.hud === 'newrun') { if (!confirm('탐험을 마치셨나요? 이번 원정의 캡처와 기록(던전, 영웅, 가방, 만난 기물)을 모두 지우고 다음 원정을 시작합니다.')) return; DB.clearCaps(); HUD.heroCache = {}; OCR.last = null; OCR.thumb = null; run.inv = {}; saveRun(); session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
     else if (d.hud === 'fillbag' && I && I.dg) { const dgd = DG[I.dg]; run.dg = I.dg; run.inv = {}; PROV9.forEach(k => { run.inv[k] = (dgd.provisions[k] || [0, 0, 0])[I.len || 0] || (k === 'Laudanum' ? [0, 1, 2][I.len || 0] : 0); }); saveRun(); session.prov = true; saveSession(); }
+    else if (d.hud === 'applyrec') { const rec = recommendParty(session.heroes, ctx.dg); if (rec) { session.heroes = rec.order.concat(session.heroes.filter(h => !rec.order.includes(h))); saveSession(); } }
     else if (d.hud === 'clearheroes') { Object.keys(HUD.heroCache).forEach(h => DB.del('hero:' + h)); session.heroes = []; HUD.heroCache = {}; saveSession(); }
     else if (d.hud === 'tobuilder') { const sl = partyFromHeroes(session.heroes); bld = { slots: sl.map((h, i) => h ? { hero: h, skills: defaultSkills(h, 4 - i) } : null), active: Math.max(0, sl.indexOf(null)), dg: ctx.dg || '' }; saveBld(); location.hash = '#/builder'; return; }
     else if (d.hud === 'pickm') { if (!OCR.last) { alert('먼저 화면을 캡처하세요.'); return; } HUD.pickM = !HUD.pickM; HUD.edit = false; }
