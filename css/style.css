@@ -400,7 +400,7 @@ main:has(.runwrap){max-width:1560px}
 .third .tag{position:absolute;right:0;top:0;font-size:10px;padding:0 6px;color:var(--gold);border-color:#6d5420;background:var(--bg)}
 
 /* 안내 캐릭터: 크게, 캡처 아래쪽에 1/3쯤 걸쳐 선다 */
-.hudfull{--m-w:clamp(160px,27vw,280px)}
+.hudfull{--m-w:clamp(110px,19vw,200px)}
 .hudscene{position:relative;z-index:2}
 .hudscene .mwrap{position:absolute;left:var(--h-gutter);bottom:18px;width:var(--m-w);transform:translateY(66%);z-index:3}
 .editing .hudscene .mwrap{opacity:.25;pointer-events:none}
@@ -486,3 +486,13 @@ main:has(.runwrap){max-width:1560px}
 /* 캡처도 대기 화면도 없을 때의 빈 판 */
 #hudstage:empty{min-height:120px}
 .hud3d{background:radial-gradient(ellipse at 50% 60%,#2a1512,#0b0807 70%)}
+
+.rmv{position:absolute;left:2px;top:2px;display:flex;gap:1px;opacity:0}
+.rs:hover .rmv{opacity:1}
+.rmv button{width:17px;height:18px;border:0;border-radius:4px;background:rgba(0,0,0,.6);color:var(--dim);font-size:9px;line-height:1;cursor:pointer;padding:0}
+.rmv button:hover{color:var(--gold)}
+
+/* 영웅 확인: 지금 일행 / 추천 일행 / 후보 */
+.recbox{margin-top:12px;padding:10px 12px;border:1px solid #6d5420;border-radius:10px;background:#1b160f}
+.recbox h3{color:var(--gold)}
+.subh{margin-top:12px;font-size:var(--t-xs);letter-spacing:.12em;color:var(--gold)}
