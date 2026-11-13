@@ -743,3 +743,25 @@ const FIELD_EVENTS = [
     "마지막 적을 기절시켜 두고 힐·스트레스 치유를 하는 운영은 2~3턴 정도만 사용할 것.",
   ]},
 ];
+
+// 장신구 칸이 3개인 모드용: 영웅별 세 번째 장신구 후보 (앞에서부터, 이미 추천된 것과 겹치지 않는 첫 번째를 쓴다)
+const THIRD_TRINKET = {
+  "Crusader": ["Unholy Slayer's Ring", "Tough Ring", "Book of Sanity"],
+  "Vestal": ["Chirurgeon's Charm", "Haste Chalice", "Book of Sanity"],
+  "Plague Doctor": ["Witch's Vial", "Blight Amulet", "Swift Cloak"],
+  "Highwayman": ["Focus Ring", "Surgical Gloves", "Quick Draw Charm"],
+  "Grave Robber": ["Feather Crystal", "Focus Ring", "Quickening Satchel"],
+  "Hellion": ["Brawler's Gloves", "Legendary Bracer", "Bleed Amulet"],
+  "Jester": ["Book of Sanity", "Swift Cloak", "Bloody Dice"],
+  "Leper": ["Brawler's Gloves", "Recovery Charm", "Legendary Bracer"],
+  "Occultist": ["Feather Crystal", "Eldritch Slayer's Ring", "Book of Sanity"],
+  "Bounty Hunter": ["Man Slayer's Ring", "Stun Amulet", "Focus Ring"],
+  "Man-at-Arms": ["Tough Ring", "Recovery Charm", "Heavy Boots"],
+  "Arbalest": ["Sniper's Ring", "Medic's Greaves", "Steady Bracer"],
+  "Houndmaster": ["Cudgel Weight", "Beast Slayer's Ring", "Bleed Amulet"],
+  "Abomination": ["Padlock of Transference", "Protective Padlock", "Legendary Bracer"],
+  "Antiquarian": ["Bag of Marbles", "Bloodcourse Medallion", "Fleet Florin"],
+  "Musketeer": ["Sniper's Ring", "Medic's Boots", "Steady Bracer"],
+  "Flagellant": ["Bleed Amulet", "Heartburst Hood", "Resurrection's Collar"],
+  "Shieldbreaker": ["Shimmering Scale", "Blight Amulet", "Feather Crystal"],
+};

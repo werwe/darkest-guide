@@ -396,3 +396,5 @@ main:has(.runwrap){max-width:1560px}
 .hudpanel.top{flex:0 0 auto;padding-block:10px 8px}
 .hudpanel.top:empty{display:none}
 .hudpanel.bottom{flex:1 1 0}
+.third{position:relative;opacity:.92}
+.third .tag{position:absolute;right:0;top:0;font-size:10px;padding:0 6px;color:var(--gold);border-color:#6d5420;background:var(--bg)}
