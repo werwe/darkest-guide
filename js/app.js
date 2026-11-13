@@ -692,7 +692,7 @@
   function rolesOf(screen) {
     if (screen === 'map') return [['party', '일행 4칸 (한 줄 전체)'], ['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
     if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['party', '일행 4칸 (한 줄 전체)'], ['title', '화면 제목 읽는 곳'], ['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
-    if (screen === 'hero') return [['party', '일행 4칸 (한 줄 전체)'], ['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)'], ['portrait', '영웅 얼굴 (목록에 쓸 그림)']];
+    if (screen === 'hero') return [['party', '일행 4칸 (한 줄 전체)'], ['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)'], ['trinkets', '장신구 칸 (한 줄 전체)'], ['portrait', '영웅 얼굴 (목록에 쓸 그림)']];
     return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
@@ -834,6 +834,8 @@
         if (I.picked) advice = add.length || drop.length ? ' 지금 고르신 기술 중 ' + (drop.length ? drop.join(', ') + '은(는) 빼고 ' : '') + (add.length ? add.join(', ') + '을(를) 넣으시지요.' : '다른 걸 넣으시지요.') : ' 기술은 제가 권해 드릴 것과 똑같이 고르셨군요. 이럴 때도 있어야지요, 히히.'; }
       else I.calls.push({ x: 0.5, y: 0.3, kind: 'card', tone: 'ok', title: '권장 기술', lines: [b.skills.map(k => koOf(k, (SKILL[h + '|' + k] || {}).ko)).join(' · ')] });
       I.advice = advice;
+      { const tz = zone('trinkets') || TRINKET_ZONE; const tri = b.trinkets.concat(thirdTrinket(h, b.trinkets) || []).filter(n => TRK[n]);
+        if (tri.length) I.calls.push({ x: tz.x, y: tz.y, above: true, kind: 'card', tone: 'ok', title: '권장 장신구', lines: tri.map((n, i) => (i + 1) + '. ' + n + ' — ' + TRK[n].fx.slice(0, 2).join(', ')), ax: tz.x + tz.w / 2, ay: tz.y + tz.h * 0.3, cell: tz }); }
       I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히.' + (I.advice || '') + (session.heroes.length >= 4 ? ' 넷을 다 보셨으니 일행 점검을 아래에 적어 두었습니다.' : ' 일행을 한 명씩 보여 주시면 제가 짝을 맞춰 보지요.'); return;
     }
     if (I.screen === 'dungeon') {
@@ -875,6 +877,8 @@
     hudBuild(); render(true); }
   // 게임 화면 아래 가운데의 일행 4칸 (영문·한글 UI 공통 위치). 화면별 영역에 'party' 가 있으면 그것을 쓴다
   const PARTY_ZONE = { x: 0.404, y: 0.822, w: 0.19, h: 0.076 };
+  // 영웅 정보 화면의 장신구 칸 (영역 편집에 '장신구 칸'을 따로 두면 그것을 쓴다)
+  const TRINKET_ZONE = { x: 0.31, y: 0.675, w: 0.14, h: 0.1 };
   function heroRoster() {   // 이번 원정에서 확인한 영웅: 앞의 4명은 일행으로 점검, 나머지는 옆에 후보로 둔다. 누르면 그 영웅을 찍어 둔 캡처가 나온다
     const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
     const party = hs.slice(0, 4), extra = hs.slice(4); const { A, slots } = checkHeroes(party, ctx.dg); const cur = HUD.info && HUD.info.hero;
@@ -946,8 +950,9 @@
         g.eventMode = 'static'; g.cursor = 'pointer'; g.on('pointertap', () => { I.dg = c.dg; ctx.dg = c.dg; hudBuild(); render(true); });
       } else {
         const cw = Math.min(W * 0.36, F * 28); const t = txt(c.title, F * 1.15, col, true, cw), b = txt(c.lines.join('\n'), F * 1.0, 0xe9e1d3, false, cw); const p = F * 0.7; t.position.set(p, p * 0.8); b.position.set(p, t.y + t.height + F * 0.2); g.addChild(t, b); w = Math.max(t.width, b.width) + p * 2; h = b.y + b.height + p * 0.8;
-        bg.lineStyle(1.5, 0x57483a, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, h, F * 0.55).endFill(); g.cx = Math.min(W - w / 2 - 6, Math.max(w / 2 + 6, c.x * W + w / 2)); g.cy = Math.min(H - h / 2 - 6, Math.max(h / 2 + 6, c.y * H + h / 2));
-        if (c.ax != null) { const ln = new P.Graphics().lineStyle(2, col, 0.85).moveTo(c.ax * W, c.ay * H).lineTo(g.cx, g.cy - h / 2).beginFill(col).drawCircle(c.ax * W, c.ay * H, 4).endFill(); fxL.addChild(ln); }
+        bg.lineStyle(1.5, 0x57483a, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, h, F * 0.55).endFill(); g.cx = Math.min(W - w / 2 - 6, Math.max(w / 2 + 6, c.x * W + w / 2)); g.cy = Math.min(H - h / 2 - 6, Math.max(h / 2 + 6, c.above ? c.y * H - h / 2 - 8 : c.y * H + h / 2));
+        if (c.cell) { const r = new P.Graphics().lineStyle(2, col, 0.9).drawRoundedRect(c.cell.x * W, c.cell.y * H, c.cell.w * W, c.cell.h * H, 4); fxL.addChild(r); pulses.push({ r, ph: i * 0.6 }); }
+        if (c.ax != null) { const ln = new P.Graphics().lineStyle(2, col, 0.85).moveTo(c.ax * W, c.ay * H).lineTo(g.cx, c.above ? g.cy + h / 2 : g.cy - h / 2).beginFill(col).drawCircle(c.ax * W, c.ay * H, 4).endFill(); fxL.addChild(ln); }
       }
       g.bs = g.bs || 1; g.scale.set(g.bs); g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still || !intro ? 1 : 0; callL.addChild(g); items.push({ g, d: intro ? i * 0.045 : -1, ph: i * 1.3 });
     });
