@@ -144,6 +144,7 @@
     const tiles = [
       ['#/plan', '원정 준비', '던전과 길이를 고르면 보급품 수량, 추천 파티, 주의할 적, 기물 요약이 한 화면에.'],
       ['#/run', '원정 진행 (보조 모니터용)', '던전을 도는 동안 띄워 두는 화면. 기물 그림을 누르면 지금 가방 기준으로 무엇을 할지 알려 줍니다.'],
+      ['#/hud', '오버레이', '캡처한 게임 화면 위에 지금 필요한 정보만 그 자리에 얹어 보여 줍니다. 안내 캐릭터가 요점을 설명합니다.'],
       ['#/builder', '파티 편성기', '영웅을 직접 넣어 보고 힐 · 기절 · 후열 타격 · 던전 상성을 점검합니다.'],
       ['#/curios', '기물 조회', '던전에서 만난 기물에 무엇을 써야 하는지 확률과 함께 즉시 확인.'],
       ['#/parties', '추천 파티', '상황별 추천 파티와 자리별 대체 영웅, 스킬, 장신구.'],
@@ -505,7 +506,7 @@
     for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]; }
   const countIn = (hay, needle) => { let n = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0) { n++; i += needle.length; } return n; };
   // 키워드 표 (영문 원문 + 이 가이드의 한글 + 다른 번역 후보 + 사용자가 용어 사전에 적은 용어). 실제 캡처로 계속 보강할 부분.
-  const LEN_WORDS = [['short', '짧은', '짧음', '단거리'], ['medium', '중간', '보통'], ['long', '장거리', '긴원정', '김']];
+  const LEN_WORDS = [['short', '짧은', '짧음', '단거리'], ['medium', '중간', '보통'], ['long', '장거리', '긴원정', '긴', '김']];
   const SCREEN_WORDS = { provision: ['provision', 'provisions', '보급', '보급품', '물자', '식량및물자'], map: ['embark', 'expedition', 'questlength', '원정', '출정', '출발'] };
   function wordsOf(en, ko, alt) { return [en, ko, overrides[en]].concat(alt || []).filter(Boolean).map(normT).filter(k => k.length >= 2); }
   function matchCurio(lines, all, nl) {
@@ -598,10 +599,11 @@
   function ocrStop() { if (OCR.stream) OCR.stream.getTracks().forEach(t => t.stop()); clearInterval(OCR.timer); OCR.stream = OCR.video = null; OCR.auto = false; OCR.status = '연결 해제됨'; }
   async function ocrRun(src, W, H, silent) {
     if (OCR.busy) return; OCR.busy = true;
-    if (!silent) { OCR.status = '인식 중…'; OCR.open = true; dock(); }
+    if (!silent) { OCR.status = '인식 중…'; if (parseHash().view !== 'hud') OCR.open = true; dock(); }
     try {
-      const t0 = performance.now(); const lines = await recognizeCanvas(prep(src, W, H));
-      OCR.lines = lines.slice(0, 24); OCR.pick = null; OCR.result = classify(lines); applyResult(OCR.result, silent);
+      const t0 = performance.now(); const cv0 = prep(src, W, H);
+      if (parseHash().view === 'hud') { OCR.pick = null; await hudAnalyze(); OCR.status = '오버레이 갱신됨'; render(true); }
+      else { const lines = await recognizeCanvas(cv0); OCR.lines = lines.slice(0, 24); OCR.pick = null; OCR.result = classify(lines); applyResult(OCR.result, silent); }
       OCR.ms = Math.round(performance.now() - t0);
     } catch (e) { OCR.status = '인식 실패: ' + e.message + (location.protocol === 'file:' ? ' (파일로 직접 연 경우 동작하지 않습니다. 배포된 주소에서 사용하세요.)' : ''); }
     OCR.busy = false; dock();
@@ -669,6 +671,170 @@
   window.ddOcr = { recognizeCanvas, classify, run: ocrRun };
   dock();
 
+  // ================= 오버레이: 캡처 화면 위에 필요한 정보만 얹기 (Konva 캔버스) =================
+  const HUD = { screen: store.get('dd.hudScreen', 'auto'), edit: false, stage: null, layer: null, tr: null, sel: null, info: null, busy: false, typer: null };
+  let zones = store.get('dd.zones', { map: [], provision: [], dungeon: [] });
+  const saveZones = () => store.set('dd.zones', zones);
+  const SCREENS = [['auto', '자동 판단'], ['map', '원정 선택 화면'], ['provision', '보급품 구매 화면'], ['dungeon', '탐험 중']];
+  const PROV8 = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom'];
+  function rolesOf(screen) {
+    if (screen === 'map') return [['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳'], ['info', '정보를 띄울 곳']];
+    if (screen === 'provision') return PROV8.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳'], ['info', '설명을 띄울 곳']]);
+    return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
+  }
+  const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
+  // 직접 그린 안내 캐릭터 "까마귀 서기" (이 사이트 고유 캐릭터)
+  const MASCOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 130"><ellipse cx="60" cy="122" rx="34" ry="6" fill="#000" opacity=".45"/><path d="M28 112c-6-30 4-62 32-62s38 32 32 62z" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M40 112c-2-18 2-34 20-34s22 16 20 34z" fill="#2a2732"/><circle cx="60" cy="40" r="26" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M52 44l-30 10 30 6z" fill="#d6a64a" stroke="#8a6a26" stroke-width="1.5"/><circle cx="68" cy="34" r="9" fill="#f3ead6"/><circle cx="70" cy="35" r="4" fill="#111"/><circle cx="68" cy="34" r="11.5" fill="none" stroke="#d6a64a" stroke-width="2.5"/><path d="M78 43q6 14 2 30" fill="none" stroke="#d6a64a" stroke-width="1.5"/><path d="M44 16l8 8M60 10v10M76 16l-7 8" stroke="#1c1a22" stroke-width="5" stroke-linecap="round"/><rect x="66" y="84" width="34" height="24" rx="3" fill="#e9dfc6" stroke="#8a6a26" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M72 92h20M72 98h20M72 104h12" stroke="#8a7a5a" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M30 84q-14 8-10 26 10-4 16-14z" fill="#16141b" stroke="#3a3542" stroke-width="2"/></svg>';
+  let mascotImg = null; (function () { const i = new Image(); i.onload = () => { mascotImg = i; }; i.src = 'data:image/svg+xml;utf8,' + encodeURIComponent(MASCOT_SVG); })();
+
+  async function recognizeDetailed(cv) {
+    const w = await ensureWorker(); const { data } = await w.recognize(cv);
+    const f = b => ({ x: b.x0 / cv.width, y: b.y0 / cv.height, w: (b.x1 - b.x0) / cv.width, h: (b.y1 - b.y0) / cv.height });
+    return { lines: (data.lines || []).map(l => ({ t: l.text.trim(), n: normT(l.text), b: f(l.bbox) })).filter(l => l.n.length >= 2), words: (data.words || []).map(x => ({ t: x.text, n: normT(x.text), b: f(x.bbox) })).filter(x => x.n.length >= 1) };
+  }
+  function cropCanvas(src, z, minH) {
+    const sx = z.x * src.width, sy = z.y * src.height, sw = Math.max(4, z.w * src.width), sh = Math.max(4, z.h * src.height);
+    const sc = Math.min(4, Math.max(1.5, (minH || 70) / sh)); const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
+    const cx = cv.getContext('2d'); cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height); return cv;
+  }
+  function findBox(det, keys) {   // 읽은 글자 중 키워드가 있는 위치 (단어 우선, 없으면 줄)
+    keys = keys.filter(k => k.length >= 2);
+    const w = det.words.find(x => keys.some(k => x.n === k || (k.length >= 3 && x.n.includes(k)))); if (w) return w.b;
+    const l = det.lines.filter(x => keys.some(k => x.n.includes(k))).sort((a, b) => a.n.length - b.n.length)[0]; return l ? l.b : null;
+  }
+  async function hudAnalyze() {
+    const src = OCR.last; if (!src) return;
+    const sc = src.width > 1920 ? 1920 / src.width : (src.width < 1000 ? 2 : 1);
+    const cv = document.createElement('canvas'); cv.width = Math.round(src.width * sc); cv.height = Math.round(src.height * sc);
+    const cx = cv.getContext('2d'); cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, 0, 0, cv.width, cv.height);
+    const det = await recognizeDetailed(cv); const lines = det.lines.map(l => l.t);
+    OCR.lines = lines.slice(0, 24); const R = classify(lines);
+    let screen = HUD.screen !== 'auto' ? HUD.screen : ({ map: 'map', provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind] || null);
+    const I = { screen, dg: R.dg, len: R.len, curio: R.curio, det, callouts: [], say: '', ask: false };
+    if (screen) for (const z of zones[screen] || []) {   // 수동 영역에서 따로 읽기 (더 정확)
+      if (!['dg', 'len', 'curio'].includes(z.role)) continue;
+      const zl = await recognizeCanvas(cropCanvas(src, z)); const zr = classify(zl); z._read = zl.join(' / ');
+      if (z.role === 'dg' && zr.dgs.length) I.dg = zr.dg || zr.dgs[0];
+      if (z.role === 'len' && zr.len != null) I.len = zr.len;
+      if (z.role === 'curio') { const m = matchCurio(zl); if (m) I.curio = m.en; else if (zr.curio) I.curio = zr.curio; }
+    }
+    HUD.info = I; hudBuild(); hudDraw();
+  }
+  function hudBuild() {
+    const I = HUD.info; if (!I) return; I.callouts = []; I.ask = false; const zs = zones[I.screen] || []; const zone = role => zs.find(z => z.role === role);
+    const LEN = ['짧은', '중간', '긴']; const at = (z, dx) => ({ x: z.x + z.w + (dx || 0.004), y: z.y });
+    if (!I.screen) { I.say = '어떤 화면인지 알아보지 못했습니다. 위에서 화면 종류를 골라 주십시오.'; return; }
+    if (I.screen === 'dungeon') {
+      const c = I.curio && CURIOS.find(x => x.en === I.curio);
+      if (!c) { I.say = '기물 이름을 읽지 못했습니다. 기물에 마우스를 올린 상태로 다시 인식하거나, 영역 편집에서 이름이 뜨는 자리를 지정해 주십시오.'; return; }
+      const v = verdict(c); const act = v.item ? itemT2(v.item) + ' 사용' : v.text; const best = c.inter.find(i => i.item === (v.item || 'hand')) || c.inter[0];
+      const pos = zone('info') ? { x: zone('info').x, y: zone('info').y } : (b => b ? { x: b.x, y: b.y + b.h + 0.01 } : { x: 0.36, y: 0.3 })(zone('curio') || findBox(I.det, wordsOf(c.en.replace(/\s*\(.*\)/, ''), c.ko)));
+      I.callouts.push({ x: pos.x, y: pos.y, kind: 'card', tone: v.cls, title: koOf(c.en, c.ko) + ' — ' + act, lines: best.r.map(r => r.p + '%  ' + (RT_KO[r.t] || r.t) + (r.e ? ': ' + r.e : '')).slice(0, 4) });
+      I.say = koOf(c.en, c.ko) + '입니다. ' + (v.item ? itemT2(v.item) + '을(를) 쓰십시오.' + (v.handBad ? ' 맨손으로 건드리면 손해 볼 확률이 높습니다.' : '') : v.cls === 'no' ? '건드리지 않는 편이 좋겠습니다.' : v.cls === 'gamble' ? '운에 맡기는 물건입니다. 여유가 있을 때만 건드리십시오.' : '맨손으로 조사하셔도 됩니다.');
+      if (c.dg !== 'all') { ctx.dg = c.dg; store.set('dd.ctx', ctx); }
+      return;
+    }
+    const dg = I.dg || ctx.dg; const len = I.len != null ? I.len : (ctx.len != null ? ctx.len : 0);
+    if (!dg || !DG[dg]) { I.ask = true; I.say = '어느 던전으로 가시는지 알려 주십시오. 위의 버튼에서 고르시면 됩니다.'; return; }
+    const d = DG[dg]; ctx = { dg, len }; store.set('dd.ctx', ctx); I.dg = dg; I.len = len;
+    if (I.screen === 'provision') {
+      let placed = 0, col = 0;
+      PROV8.forEach(k => { const n = (d.provisions[k] || [0, 0, 0])[len]; const z = zone('item:' + k); const p = PROV[k];
+        const b = z || findBox(I.det, wordsOf(p.en, p.ko, p.alt)); let pos;
+        if (z) pos = { x: z.x + z.w * 0.5, y: z.y - 0.005, center: true }; else if (b) pos = at(b); else pos = { x: 0.02, y: 0.12 + (col++) * 0.07, label: true };
+        if (z || b) placed++;
+        I.callouts.push({ x: pos.x, y: pos.y, center: pos.center, kind: 'badge', tone: n ? 'use' : 'off', title: (pos.label || !z ? '' : '') + (n ? '×' + n : '생략'), sub: pos.label ? koOf(p.en, p.ko) : '' }); });
+      I.say = koOf(d.en, d.ko) + ' · ' + LEN[len] + ' 원정 권장 수량입니다. ' + (d.tips[0] || '') + (placed < 4 ? ' (칸 위치를 못 찾은 품목은 왼쪽에 모아 두었습니다. 영역 편집에서 칸을 지정하시면 제자리에 표시합니다.)' : '');
+      return;
+    }
+    // 원정 선택 화면
+    const pz = zone('info'); const b = zone('dg') || findBox(I.det, wordsOf(d.en, d.ko, d.alt));
+    const pos = pz ? { x: pz.x, y: pz.y } : b ? { x: Math.min(0.62, b.x + b.w + 0.01), y: Math.max(0.02, b.y - 0.02) } : { x: 0.56, y: 0.14 };
+    const party = PARTIES.find(p => p.id === d.parties[0]);
+    I.callouts.push({ x: pos.x, y: pos.y, kind: 'card', tone: 'ok', title: koOf(d.en, d.ko) + (I.len != null ? ' · ' + LEN[len] + ' 원정' : ''), lines: ['통함: ' + d.dmg.good.map(x => x.replace(/\s*\(.*\)/, '')).join(', '), d.dmg.bad.length ? '안 통함: ' + d.dmg.bad.map(x => x.replace(/\s*\(.*\)/, '')).join(', ') : '', '추천 영웅: ' + d.heroes.good.slice(0, 5).map(heroKo).join(', '), party ? '추천 파티: ' + party.name + ' (' + party.slots.map(s => heroKo(s.hero)).join(' · ') + ')' : ''].filter(Boolean) });
+    I.say = koOf(d.en, d.ko) + ' 원정이시군요. ' + (d.threats[0] || '') + ' ' + (d.tips[0] || '');
+  }
+  function itemT2(id) { const en = ITEM_EN[id] || id; const p = PROV[en]; return id === 'hand' ? '맨손' : koOf(en, p ? p.ko : ITEM_KO[id]); }
+  const TONE = { use: '#6fae5c', ok: '#d6a64a', no: '#d0584a', gamble: '#a98bd0', off: '#74695a' };
+
+  V.hud = function () {
+    const I = HUD.info; const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : null);
+    let o = '<h1>오버레이</h1><p class="lead">캡처한 게임 화면을 배경으로 깔고, 지금 필요한 정보만 그 자리에 얹어 보여 줍니다. 화면 인식 패널에서 게임 창을 연결해 인식하거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>';
+    o += '<div class="row"><span class="small dim">화면 종류:</span>' + SCREENS.map(([v, l]) => '<button class="chip sm' + (HUD.screen === v ? ' on' : '') + '" data-hscreen="' + v + '">' + l + '</button>').join('') + '<button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집 ' + (HUD.edit ? '켜짐' : '꺼짐') + '</button></div>';
+    if (I && (I.ask || (scr && scr !== 'dungeon'))) o += '<div class="row" style="margin-top:6px"><span class="small dim">' + (I.ask ? '<b style="color:var(--gold)">던전을 골라 주세요:</b>' : '던전:') + '</span>' + DUNGEONS.map(d => '<button class="chip sm' + (I.dg === d.id ? ' on' : '') + '" data-hdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '<span class="small dim">길이:</span>' + ['짧은', '중간', '긴'].map((l, i) => '<button class="chip sm' + (I.len === i ? ' on' : '') + '" data-hlen="' + i + '">' + l + '</button>').join('') + '</div>';
+    if (HUD.edit) { const s = scr || 'provision';
+      o += '<div class="card" style="margin-top:8px"><div class="row"><b>영역 편집 — ' + (SCREENS.find(x => x[0] === s) || [0, ''])[1] + '</b><select class="field" id="hrole">' + rolesOf(s).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">영역 추가</button><button class="chip sm" data-hud="delzone">선택 영역 삭제</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button></div><div class="small dim">영역을 끌어 옮기고 모서리로 크기를 조절하세요. "읽는 곳"은 그 안의 글자만 따로 읽어 정확도를 높이고, "칸 / 띄울 곳"은 정보가 표시될 위치입니다. 화면 종류별로 따로 저장됩니다(' + (zones[s] || []).length + '개).</div></div>'; }
+    o += '<div id="hudwrap"><div id="hudstage"></div></div>';
+    if (I && scr === 'dungeon' && I.curio) o += '<p class="small"><a href="#/run">→ 원정 진행 화면에서 전체 확률 보기</a></p>';
+    if (I && I.dg && scr === 'map') o += '<p class="small"><a href="#/parties?tag=' + I.dg + '">→ 추천 파티 자세히</a> · <a href="#/plan/' + I.dg + '/' + (I.len || 0) + '">→ 원정 준비</a></p>';
+    return o;
+  };
+  async function hudMount() {
+    const el = $('#hudstage'); if (!el) return;
+    if (!window.Konva) { try { await loadScript(new URL('vendor/konva/konva.min.js', location.href.split('#')[0]).href); } catch (e) { el.textContent = '캔버스 라이브러리를 불러오지 못했습니다.'; return; } }
+    if (!$('#hudstage')) return;
+    const src = OCR.last; const W = $('#hudwrap').clientWidth; const H = Math.round(W * (src ? src.height / src.width : 9 / 16));
+    if (HUD.stage) HUD.stage.destroy();
+    HUD.stage = new Konva.Stage({ container: 'hudstage', width: W, height: H }); HUD.layer = new Konva.Layer(); HUD.stage.add(HUD.layer); hudDraw();
+  }
+  function hudDraw() {
+    const st = HUD.stage, L = HUD.layer; if (!st || !$('#hudstage')) return; clearInterval(HUD.typer); L.destroyChildren();
+    const W = st.width(), H = st.height(); const I = HUD.info; const src = OCR.last; const F = Math.max(12, Math.round(W / 82));
+    if (src) L.add(new Konva.Image({ image: src, width: W, height: H })); else L.add(new Konva.Rect({ width: W, height: H, fill: '#15110f' }));
+    L.add(new Konva.Rect({ width: W, height: H, fill: '#000', opacity: src ? (HUD.edit ? 0.15 : 0.38) : 0, listening: false }));
+    if (!src) L.add(new Konva.Text({ text: '아직 캡처가 없습니다.\n오른쪽 아래 "화면 인식"에서 게임 화면을 연결해 인식하거나\n스크린샷을 Ctrl+V로 붙여 넣으세요.', width: W, y: H / 2 - F * 2.5, align: 'center', fill: '#a79b89', fontSize: F * 1.2, lineHeight: 1.6 }));
+    const font = '"Pretendard","Apple SD Gothic Neo","Malgun Gothic","Noto Sans KR",sans-serif';
+    if (HUD.edit) {
+      const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : 'provision'); HUD.tr = new Konva.Transformer({ rotateEnabled: false, keepRatio: false, borderStroke: '#d6a64a', anchorStroke: '#d6a64a', anchorSize: 9 });
+      (zones[scr] || []).forEach((z, i) => { const read = ['dg', 'len', 'curio'].includes(z.role);
+        const g = new Konva.Group({ x: z.x * W, y: z.y * H, draggable: true }); const r = new Konva.Rect({ width: z.w * W, height: z.h * H, stroke: read ? '#7fd6d0' : '#d6a64a', strokeWidth: 2, dash: read ? [6, 4] : [], fill: read ? 'rgba(127,214,208,.12)' : 'rgba(214,166,74,.14)' });
+        const t = new Konva.Text({ text: roleLabel(scr, z.role) + (z._read ? '\n읽음: ' + z._read.slice(0, 24) : ''), fontSize: F * 0.85, fill: '#fff', padding: 3, fontFamily: font, listening: false, shadowColor: '#000', shadowBlur: 3, shadowOpacity: 1 });
+        g.add(r); g.add(t); L.add(g);
+        const commit = () => { z.x = g.x() / W; z.y = g.y() / H; z.w = r.width() * r.scaleX() / W; z.h = r.height() * r.scaleY() / H; r.width(r.width() * r.scaleX()); r.height(r.height() * r.scaleY()); r.scale({ x: 1, y: 1 }); saveZones(); };
+        g.on('dragend', commit); r.on('transformend', () => { g.x(g.x() + r.x()); g.y(g.y() + r.y()); r.position({ x: 0, y: 0 }); commit(); });
+        g.on('mousedown touchstart', () => { HUD.sel = i; HUD.tr.nodes([r]); L.batchDraw(); }); if (HUD.sel === i) HUD.tr.nodes([r]); });
+      L.add(HUD.tr); L.draw(); return;
+    }
+    if (!I) { L.draw(); return; }
+    I.callouts.forEach((c, i) => { const col = TONE[c.tone] || '#d6a64a'; const g = new Konva.Group({ opacity: 0 });
+      if (c.kind === 'badge') {
+        const t = new Konva.Text({ text: c.title, fontSize: F * 1.5, fontStyle: 'bold', fill: c.tone === 'off' ? '#b8b0a3' : '#fff', fontFamily: font, padding: F * 0.35 }); const s = c.sub ? new Konva.Text({ text: c.sub, fontSize: F * 0.9, fill: '#e9e1d3', fontFamily: font, padding: F * 0.35, x: t.width() - F * 0.3, y: F * 0.3 }) : null;
+        const w = t.width() + (s ? s.width() - F * 0.3 : 0); g.add(new Konva.Rect({ width: w, height: t.height(), cornerRadius: F * 0.5, fill: 'rgba(18,14,12,.93)', stroke: col, strokeWidth: 2, shadowColor: '#000', shadowBlur: 8, shadowOpacity: .8 })); g.add(t); if (s) g.add(s);
+        g.position({ x: Math.min(W - w - 4, Math.max(4, c.x * W - (c.center ? w / 2 : 0))), y: Math.max(4, c.y * H - (c.center ? t.height() : 0)) });
+      } else {
+        const cw = Math.min(W * 0.4, F * 30); const t = new Konva.Text({ text: c.title, width: cw, fontSize: F * 1.15, fontStyle: 'bold', fill: col, fontFamily: font, padding: F * 0.6 });
+        const b = new Konva.Text({ text: c.lines.join('\n'), width: cw, y: t.height() - F * 0.7, fontSize: F * 0.95, fill: '#e9e1d3', fontFamily: font, padding: F * 0.6, lineHeight: 1.45 }); const h = t.height() - F * 0.7 + b.height();
+        g.add(new Konva.Rect({ width: cw, height: h, cornerRadius: F * 0.6, fill: 'rgba(18,14,12,.94)', stroke: col, strokeWidth: 2, shadowColor: '#000', shadowBlur: 12, shadowOpacity: .8 })); g.add(t); g.add(b);
+        g.position({ x: Math.min(W - cw - 6, Math.max(6, c.x * W)), y: Math.min(H - h - 6, Math.max(6, c.y * H)) });
+      }
+      L.add(g); const y = g.y(); g.y(y + 10); setTimeout(() => { if (g.getLayer()) new Konva.Tween({ node: g, opacity: 1, y, duration: 0.28, easing: Konva.Easings.EaseOut }).play(); }, i * 45); });
+    if (I.say) {   // 안내 캐릭터와 말풍선
+      const mh = Math.min(H * 0.26, 150), mw = mh * 120 / 130; const mx = 10, my = H - mh - 6;
+      if (mascotImg) L.add(new Konva.Image({ image: mascotImg, x: mx, y: my, width: mw, height: mh }));
+      const bw = Math.min(W - mw - 40, F * 46); const txt = new Konva.Text({ text: I.say, width: bw, fontSize: F * 1.02, fill: '#1b1611', fontFamily: font, padding: F * 0.75, lineHeight: 1.45 }); const bh = txt.height(); const bx = mx + mw + 14, by = Math.max(6, H - bh - 16);
+      const bub = new Konva.Group({ x: bx, y: by }); bub.add(new Konva.Rect({ width: bw, height: bh, cornerRadius: F * 0.8, fill: '#efe6cf', stroke: '#8a6a26', strokeWidth: 2, shadowColor: '#000', shadowBlur: 10, shadowOpacity: .7 }));
+      bub.add(new Konva.Line({ points: [0, bh - F * 2.2, -13, bh - F * 1.3, 0, bh - F * 0.9], closed: true, fill: '#efe6cf', stroke: '#8a6a26', strokeWidth: 2 })); bub.add(new Konva.Rect({ x: 1, y: bh - F * 2.3, width: 4, height: F * 1.5, fill: '#efe6cf' })); bub.add(txt); L.add(bub);
+      const full = I.say; let n = 0; txt.text(''); HUD.typer = setInterval(() => { n += 2; txt.text(full.slice(0, n)); L.batchDraw(); if (n >= full.length) clearInterval(HUD.typer); }, 16);
+    }
+    L.draw();
+  }
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-hscreen],[data-hud],[data-hdg],[data-hlen]'); if (!t) return; const d = t.dataset; const I = HUD.info;
+    const scr = (I && I.screen) || (HUD.screen !== 'auto' ? HUD.screen : 'provision');
+    if (d.hscreen != null) { HUD.screen = d.hscreen; store.set('dd.hudScreen', HUD.screen); HUD.sel = null; if (OCR.last) { hudRun(); return; } }
+    else if (d.hdg != null && I) { I.dg = d.hdg; ctx.dg = d.hdg; hudBuild(); }
+    else if (d.hlen != null && I) { I.len = +d.hlen; ctx.len = I.len; hudBuild(); }
+    else if (d.hud === 'rescan') { hudRun(); return; }
+    else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
+    else if (d.hud === 'addzone') { const role = $('#hrole').value; zones[scr] = zones[scr] || []; zones[scr].push({ role, x: 0.4, y: 0.4, w: role.startsWith('item:') ? 0.06 : 0.2, h: role.startsWith('item:') ? 0.1 : 0.06 }); HUD.sel = zones[scr].length - 1; saveZones(); }
+    else if (d.hud === 'delzone') { if (HUD.sel != null && zones[scr]) { zones[scr].splice(HUD.sel, 1); HUD.sel = null; saveZones(); } }
+    else if (d.hud === 'export') { prompt('영역 정보입니다. 복사해 보관하거나 공유하세요.', JSON.stringify(zones, (k, v) => k === '_read' ? undefined : (typeof v === 'number' ? Math.round(v * 10000) / 10000 : v))); return; }
+    else if (d.hud === 'import') { const s = prompt('내보낸 영역 정보를 붙여 넣으세요.'); if (!s) return; try { const o = JSON.parse(s); if (o && typeof o === 'object') { zones = Object.assign({ map: [], provision: [], dungeon: [] }, o); saveZones(); } } catch (err) { alert('형식이 올바르지 않습니다.'); return; } }
+    render(true);
+  });
+  async function hudRun() { if (HUD.busy || !OCR.last) { render(true); return; } HUD.busy = true; OCR.status = '분석 중…'; dock(); try { await hudAnalyze(); OCR.status = '오버레이 갱신됨'; } catch (e) { OCR.status = '분석 실패: ' + e.message; } HUD.busy = false; dock(); render(true); }
+  window.addEventListener('resize', () => { if (parseHash().view === 'hud') hudMount(); });
+
   // ================= 라우터 =================
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, ''); const [path, qs] = h.split('?');
@@ -692,6 +858,7 @@
     const key = r.view + '/' + r.args.join('/');
     if (!keep && key !== lastView) window.scrollTo(0, 0);
     lastView = key;
+    if (r.view === 'hud') hudMount();
     if (r.view === 'parties' && r.q.id) { const el = $('#party-' + r.q.id); if (el) el.scrollIntoView({ block: 'start' }); }
     $('#modeBtn').textContent = { both: '한/영', ko: '한글', en: 'ENG' }[mode];
     document.title = (app.querySelector('h1') ? app.querySelector('h1').textContent.replace(/\s+/g, ' ').trim() + ' · ' : '') + '다키스트 던전 공략 수첩';
