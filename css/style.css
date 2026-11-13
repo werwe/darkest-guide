@@ -454,3 +454,12 @@ main:has(.runwrap){max-width:1560px}
 .tslot .ttip i{display:block;font-style:normal;color:var(--faint);font-size:11px;margin-bottom:2px}
 .tslot:hover{border-color:#fff;z-index:6}
 .tslot:hover .ttip{display:block}
+
+/* 추천 야영 기술 */
+.camp{padding:6px 0;border-bottom:1px solid var(--line)}
+.camp:last-of-type{border-bottom:0}
+.camp b{margin-right:6px}
+.camp .tag{margin-right:4px}
+.tslot.cslot{background:none;border-color:#7fd6d0;cursor:help}
+.tslot.cslot .tname{color:#bff1ec}
+.tslot .ttip small{color:var(--faint);font-weight:400}
