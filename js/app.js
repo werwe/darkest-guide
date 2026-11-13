@@ -81,11 +81,13 @@
     const t = TRK[en]; if (!t) return '';
     return '<div class="tk">' + pic(t.img, 0, '') + '<span><b>' + esc(t.en) + '</b><br>' + esc(t.fx.join(' · ')) + '</span></div>';
   }
+  function thirdTrinket(hero, have) { return (THIRD_TRINKET[hero] || []).find(t => TRK[t] && !(have || []).includes(t)) || null; }
+  function thirdLine(hero, have) { const t = thirdTrinket(hero, have); return t ? '<div class="third" title="장신구 칸이 3개인 모드를 쓸 때의 추가 추천">' + trinketLine(t) + '<span class="tag">3번째 칸</span></div>' : ''; }
   function slotHTML(s, pos) {
     const h = HERO_DATA[s.hero] || {};
     let o = '<div class="slot"><div class="slot-top"><div class="port">' + pic(h.img, 120, '') + '</div><div><div class="pos">' + pos + '열' + (pos === 1 ? ' · 맨 앞' : pos === 4 ? ' · 맨 뒤' : '') + '</div><a class="hn" href="#/hero/' + encodeURIComponent(s.hero) + '">' + heroT(s.hero) + '</a></div></div>';
     o += '<h5>스킬</h5>' + s.skills.map(k => skillLine(s.hero, k)).join('');
-    if (s.trinkets && s.trinkets.length) o += '<h5>장신구</h5>' + s.trinkets.map(trinketLine).join('');
+    if (s.trinkets && s.trinkets.length) o += '<h5>장신구</h5>' + s.trinkets.map(trinketLine).join('') + thirdLine(s.hero, s.trinkets);
     if (s.alts && s.alts.length) o += '<h5>대체 영웅</h5><div class="alts">' + s.alts.map(a => '<div><a href="#/hero/' + encodeURIComponent(a.hero) + '">' + esc(heroKo(a.hero)) + '</a> — ' + esc(a.note) + '</div>').join('') + '</div>';
     return o + '</div>';
   }
@@ -235,7 +237,7 @@
     o += '<div class="small dim">레벨 1 기준 · 저항: ' + Object.keys(RES).filter(k => d.res[k]).map(k => RES[k] + ' ' + esc(d.res[k]) + '%').join(' · ') + (d.critbonus ? ' · 치명타 시: ' + esc(d.critbonus) : '') + '</div>';
     if (g.alt && g.alt.length) o += '<div class="small dim">다른 번역: ' + g.alt.map(esc).join(', ') + '</div>';
     o += '<div class="small" style="margin-top:6px">' + (g.best.length ? '잘 맞는 곳: ' + g.best.map(b => '<a class="tag good" href="#/plan/' + b + '">' + esc(koOf(DG[b].en, DG[b].ko)) + '</a>').join(' ') : '') + (g.worst.length ? ' 안 맞는 곳: ' + g.worst.map(b => '<span class="tag bad">' + esc(koOf(DG[b].en, DG[b].ko)) + '</span>').join(' ') : '') + '</div></div></div>';
-    o += '<h2>추천 세팅</h2><div class="grid g2">' + g.builds.map(b => '<div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div><div class="small dim">스킬</div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div><div class="small dim">장신구</div>' + b.trinkets.map(trinketLine).join('') + '</div></div><p class="small dim">' + esc(b.note) + '</p></div>').join('') + '</div>';
+    o += '<h2>추천 세팅</h2><div class="grid g2">' + g.builds.map(b => '<div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div><div class="small dim">스킬</div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div><div class="small dim">장신구</div>' + b.trinkets.map(trinketLine).join('') + thirdLine(h, b.trinkets) + '</div></div><p class="small dim">' + esc(b.note) + '</p></div>').join('') + '</div>';
     o += '<h2>운용 팁</h2>' + ul(g.tips);
     o += '<h2>전체 스킬</h2><p class="small dim"><span class="dots"><i class="h"></i></span> 사용 가능한 내 위치(왼쪽이 4열) ▶ <span class="dots"><i class="e"></i></span> 적 대상(왼쪽이 적 1열) / <span class="dots"><i class="a"></i></span> 아군 대상. 네모로 이어진 칸은 동시 타격. 수치는 1레벨 기준.</p><div class="tw"><table><tr><th></th><th>스킬</th><th>위치 ▶ 대상</th><th>효과</th></tr>' + d.skills.map(skillRow).join('') + '</table></div>';
     const mine = TRINKETS.filter(t => t.cls === h);
@@ -678,10 +680,10 @@
     provision: [{ role: 'dg', x: 0.58, y: 0.082, w: 0.29, h: 0.05 }, { role: 'len', x: 0.58, y: 0.082, w: 0.29, h: 0.05 },
       cell('item:Food', 0, 0), cell('item:Shovel', 1, 0), cell('item:Antivenom', 2, 0), cell('item:Bandage', 3, 0), cell('item:Medicinal Herbs', 4, 0), cell('item:Skeleton Key', 5, 0), cell('item:Holy Water', 0, 1), cell('item:Laudanum', 1, 1), cell('item:Torch', 2, 1)],
     map: [{ role: 'title', x: 0.12, y: 0.15, w: 0.14, h: 0.08 }, { role: 'quest', x: 0.08, y: 0.24, w: 0.19, h: 0.35 }, { role: 'tag:darkest', x: 0.667, y: 0.088, w: 0.09, h: 0.035 }, { role: 'tag:ruins', x: 0.563, y: 0.198, w: 0.03, h: 0.035 }, { role: 'tag:warrens', x: 0.486, y: 0.365, w: 0.04, h: 0.035 }, { role: 'tag:cove', x: 0.715, y: 0.365, w: 0.045, h: 0.035 }, { role: 'tag:weald', x: 0.573, y: 0.48, w: 0.05, h: 0.035 }],
-    dungeon: [], hero: [{ role: 'hero', x: 0.085, y: 0.185, w: 0.24, h: 0.05 }],
+    dungeon: [], hero: [{ role: 'hero', x: 0.085, y: 0.185, w: 0.24, h: 0.05 }, { role: 'skills', x: 0.4835, y: 0.288, w: 0.2915, h: 0.068 }],
   };
-  let zones = store.get('dd.zones4', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
-  const saveZones = () => store.set('dd.zones4', zones);
+  let zones = store.get('dd.zones5', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
+  const saveZones = () => store.set('dd.zones5', zones);
   const SCREENS = [['auto', '자동'], ['map', '원정 선택'], ['provision', '보급품'], ['hero', '영웅 정보'], ['dungeon', '탐험 중']];
   const PROV9 = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom', 'Laudanum'];
   const DG_SHORT = { ruins: '중독 ○ · 출혈 ✕', weald: '출혈 ○ · 중독 ✕', warrens: '출혈 ○ · 중독 ✕', cove: '중독 ○ · 출혈 ✕', courtyard: '출혈 ○ · 중독 ✕', farmstead: '광역 · 지속력', darkest: '스트레스 · 이형' };
@@ -690,7 +692,7 @@
   function rolesOf(screen) {
     if (screen === 'map') return [['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
     if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
-    if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳']];
+    if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)']];
     return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
@@ -709,6 +711,7 @@
     if (has('estatemap') || (has('goals', 0) && has('rewards')) || a.includes('영지지도') || (a.includes('목표') && a.includes('보상') && a.includes('원정준비'))) return 'map';
     if (has('sellback', 1) || has('inventoryto') || has('되팔기', 0)) return 'provision';
     if (['quirks', 'equipment', 'resistances', 'campingskills', 'combatskills', 'preferredposition', 'basestats'].filter(w => has(w)).length >= 2) return 'hero';
+    if (['전투기술', '야영기술', '저항력', '기본능력치', '추천위치', '추천목표', '죽음의일격'].filter(w => a.includes(w)).length >= 2) return 'hero';
     return null; }
 
   async function recognizeDetailed(cv) {
@@ -723,6 +726,13 @@
   }
   function findBox(det, keys) {
     const w = det.words.find(x => keys.some(k => x.n === k || (k.length >= 3 && x.n.includes(k)) || (k.length >= 5 && x.n.length >= 4 && Math.abs(x.n.length - k.length) <= 1 && lev(x.n, k) <= 1))); return w ? w.b : null;
+  }
+  // 영웅 화면의 전투 기술 7칸: 선택된 칸은 색이 있고 선택 안 된 칸은 회색이라, 칸마다 색의 진하기를 잰다
+  function readSkillRow(src, z) {
+    const out = []; const cv = document.createElement('canvas'); cv.width = 7 * 16; cv.height = 16; const cx = cv.getContext('2d');
+    cx.drawImage(src, z.x * src.width, z.y * src.height, z.w * src.width, z.h * src.height, 0, 0, cv.width, cv.height); let d; try { d = cx.getImageData(0, 0, cv.width, cv.height).data; } catch (e) { return null; }
+    for (let k = 0; k < 7; k++) { let sum = 0, n = 0; for (let y = 3; y < 13; y++) for (let x = k * 16 + 3; x < k * 16 + 13; x++) { const i = (y * cv.width + x) * 4; sum += Math.max(d[i], d[i + 1], d[i + 2]) - Math.min(d[i], d[i + 1], d[i + 2]); n++; } out.push(sum / n); }
+    return out.map(v => v > 28);
   }
   // 지도에서 고른 원정 뒤에 깔리는 붉은 얼룩을 찾는다 (지도 영역 안에서 붉은 화소가 가장 몰린 곳)
   function findSplatter(src) {
@@ -746,6 +756,7 @@
     let screen = HUD.screen !== 'auto' ? HUD.screen : (byTitle || detectScreen(lines) || (lvl && /목표|goals/.test(normT(all)) ? 'map' : null) || ({ provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind]) || null);
     const I = { screen, dg: null, len: readLen(all), curio: R.curio, hero: null, det };
     if (screen === 'hero') I.hero = readHero(all);
+    if (screen === 'hero') { const zr = (zones.hero || []).find(z => z.role === 'skills'); if (zr) I.picked = readSkillRow(src, zr); }
     if (screen === 'provision' || screen === 'dungeon') I.dg = R.dg;
     for (const z of (screen && zones[screen]) || []) {   // 지정한 영역만 따로 읽기 (더 정확)
       if (!READ_ROLES.includes(z.role) || z.role === 'title') continue;
@@ -795,9 +806,16 @@
       if (!session.heroes.includes(h)) { session.heroes.push(h); if (session.heroes.length > 4) session.heroes.shift(); saveSession(); }
       const g = HERO_GUIDE[h], b = g.builds[0];
       I.top = '<div class="row"><h2 class="hudh">' + heroT(h) + '</h2><span class="tag gold">' + esc(g.role) + '</span>' + g.pos.map(p => '<span class="tag">' + p + '열</span>').join('') + '</div><p>' + esc(g.summary) + '</p>';
-      I.bottom = heroRoster() + '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div></div>';
-      I.calls.push({ x: 0.5, y: 0.3, kind: 'card', tone: 'ok', title: '권장 기술', lines: [b.skills.map(k => koOf(k, (SKILL[h + '|' + k] || {}).ko)).join(' · ')] });
-      I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히.' + (session.heroes.length >= 4 ? ' 넷을 다 보셨으니 일행 점검을 아래에 적어 두었습니다.' : ' 일행을 한 명씩 보여 주시면 제가 짝을 맞춰 보지요.'); return;
+      I.bottom = heroRoster() + '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + thirdLine(h, b.trinkets) + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div></div>';
+      const zr = zone('skills'); const all7 = HERO_DATA[h].skills; let advice = '';
+      if (zr && h !== 'Abomination' && all7.length === 7) { const add = [], drop = [];
+        all7.forEach((k, i) => { const rec = b.skills.includes(k.en), on = I.picked ? I.picked[i] : null; const cellz = { x: zr.x + zr.w * i / 7, y: zr.y, w: zr.w / 7, h: zr.h };
+          if (rec) { I.calls.push({ x: cellz.x + cellz.w / 2, y: cellz.y, kind: 'badge', small: true, tone: on === false ? 'ok' : 'use', title: on === false ? '넣기' : '추천', cell: cellz }); if (on === false) add.push(koOf(k.en, k.ko)); }
+          else if (on) { I.calls.push({ x: cellz.x + cellz.w / 2, y: cellz.y, kind: 'badge', small: true, tone: 'off', title: '빼기' }); drop.push(koOf(k.en, k.ko)); } });
+        if (I.picked) advice = add.length || drop.length ? ' 지금 고르신 기술 중 ' + (drop.length ? drop.join(', ') + '은(는) 빼고 ' : '') + (add.length ? add.join(', ') + '을(를) 넣으시지요.' : '다른 걸 넣으시지요.') : ' 기술은 제가 권해 드릴 것과 똑같이 고르셨군요. 이럴 때도 있어야지요, 히히.'; }
+      else I.calls.push({ x: 0.5, y: 0.3, kind: 'card', tone: 'ok', title: '권장 기술', lines: [b.skills.map(k => koOf(k, (SKILL[h + '|' + k] || {}).ko)).join(' · ')] });
+      I.advice = advice;
+      I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히.' + (I.advice || '') + (session.heroes.length >= 4 ? ' 넷을 다 보셨으니 일행 점검을 아래에 적어 두었습니다.' : ' 일행을 한 명씩 보여 주시면 제가 짝을 맞춰 보지요.'); return;
     }
     if (I.screen === 'dungeon') {
       const c = I.curio && CURIOS.find(x => x.en === I.curio);
@@ -890,7 +908,7 @@
     (I ? I.calls : []).forEach((c, i) => {
       const g = new P.Container(); const col = TONEC[c.tone] || 0xd6a64a; let w, h; const bg = new P.Graphics(); g.addChild(bg);
       if (c.kind === 'badge') {
-        const t = txt(c.title, F * 1.55, c.tone === 'off' ? 0x8a8073 : 0xeaf6e4, true); const px = F * 0.55, py = F * 0.12; w = t.width + px * 2; h = t.height + py * 2; t.position.set(px, py); g.addChild(t);
+        const t = txt(c.title, F * (c.small ? 0.95 : 1.55), c.tone === 'off' ? 0xb8b0a3 : 0xeaf6e4, true); const px = F * 0.55, py = F * 0.12; w = t.width + px * 2; h = t.height + py * 2; t.position.set(px, py); g.addChild(t);
         bg.lineStyle(2, col, 1).beginFill(c.tone === 'off' ? 0x161310 : 0x11160f, 0.96).drawRoundedRect(0, 0, w, h, F * 0.5).endFill(); g.cx = c.x * W; g.cy = c.y * H - h * 0.15;
         if (c.cell && c.tone !== 'off') { const r = new P.Graphics().lineStyle(2, col, 0.9).drawRoundedRect(c.cell.x * W, c.cell.y * H, c.cell.w * W, c.cell.h * H, 4); fxL.addChild(r); pulses.push({ r, ph: i * 0.6 }); }
       } else if (c.kind === 'tag') {
