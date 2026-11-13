@@ -677,24 +677,25 @@
   const DEFAULT_ZONES = {
     provision: [{ role: 'dg', x: 0.58, y: 0.082, w: 0.29, h: 0.05 }, { role: 'len', x: 0.58, y: 0.082, w: 0.29, h: 0.05 },
       cell('item:Food', 0, 0), cell('item:Shovel', 1, 0), cell('item:Antivenom', 2, 0), cell('item:Bandage', 3, 0), cell('item:Medicinal Herbs', 4, 0), cell('item:Skeleton Key', 5, 0), cell('item:Holy Water', 0, 1), cell('item:Laudanum', 1, 1), cell('item:Torch', 2, 1)],
-    map: [{ role: 'len', x: 0.085, y: 0.455, w: 0.2, h: 0.065 }, { role: 'tag:darkest', x: 0.66, y: 0.115, w: 0.13, h: 0.04 }, { role: 'tag:courtyard', x: 0.33, y: 0.175, w: 0.13, h: 0.04 }, { role: 'tag:ruins', x: 0.535, y: 0.225, w: 0.1, h: 0.04 }, { role: 'tag:warrens', x: 0.345, y: 0.35, w: 0.1, h: 0.04 }, { role: 'tag:cove', x: 0.71, y: 0.375, w: 0.1, h: 0.04 }, { role: 'tag:weald', x: 0.505, y: 0.505, w: 0.1, h: 0.04 }],
+    map: [{ role: 'title', x: 0.12, y: 0.15, w: 0.14, h: 0.08 }, { role: 'quest', x: 0.08, y: 0.24, w: 0.19, h: 0.35 }, { role: 'tag:darkest', x: 0.667, y: 0.088, w: 0.09, h: 0.035 }, { role: 'tag:ruins', x: 0.563, y: 0.198, w: 0.03, h: 0.035 }, { role: 'tag:warrens', x: 0.486, y: 0.365, w: 0.04, h: 0.035 }, { role: 'tag:cove', x: 0.715, y: 0.365, w: 0.045, h: 0.035 }, { role: 'tag:weald', x: 0.573, y: 0.48, w: 0.05, h: 0.035 }],
     dungeon: [], hero: [{ role: 'hero', x: 0.085, y: 0.185, w: 0.24, h: 0.05 }],
   };
-  let zones = store.get('dd.zones2', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
-  const saveZones = () => store.set('dd.zones2', zones);
+  let zones = store.get('dd.zones4', null) || JSON.parse(JSON.stringify(DEFAULT_ZONES));
+  const saveZones = () => store.set('dd.zones4', zones);
   const SCREENS = [['auto', '자동'], ['map', '원정 선택'], ['provision', '보급품'], ['hero', '영웅 정보'], ['dungeon', '탐험 중']];
   const PROV9 = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom', 'Laudanum'];
   const DG_SHORT = { ruins: '중독 ○ · 출혈 ✕', weald: '출혈 ○ · 중독 ✕', warrens: '출혈 ○ · 중독 ✕', cove: '중독 ○ · 출혈 ✕', courtyard: '출혈 ○ · 중독 ✕', farmstead: '광역 · 지속력', darkest: '스트레스 · 이형' };
   // 안내 캐릭터의 던전별 한마디 (공손한 집사 말투로 직접 작성)
   const DG_BUTLER = { ruins: '해골들은 피가 없으니 출혈은 헛수고지요. 중독을 쓰시고 성수와 열쇠를 챙기십시오. 지난번처럼 빈손으로 가시진 않겠지요?', weald: '그곳 것들은 독을 밥처럼 먹으니 출혈로 다스리시지요. 삽과 붕대, 해독제… 잊으시면 영웅들이 대신 값을 치를 겁니다, 히히.', warrens: '돼지 놈들은 피를 잘 흘립니다. 병도 잘 옮기고요. 약초와 붕대를 챙기시지요. 요양원 주인이 주인님을 참 좋아합디다.', cove: '비늘 덮인 것들은 출혈이 잘 안 듣습니다. 중독을 쓰시고 삽과 약초를 넉넉히. 젖은 양말은 덤이옵니다.', courtyard: '흡혈귀들은 출혈에 약합니다만, 저쪽 칼날이 더 깊지요. 붕대를 한가득 챙기십시오. 물리시거든… 가까이 오지는 마시고요, 히히.', farmstead: '끝도 없이 몰려올 터이니 오래 버틸 채비나 하시지요. 횃불은 필요 없습니다. 어차피 볼 것도 없으니까요.', darkest: '그곳이라… 히히히. 마음 달랠 수단을 둘 이상 갖추시지요. 묘지기에게는 제가 미리 일러 두겠습니다.' };
   function rolesOf(screen) {
-    if (screen === 'map') return [['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
+    if (screen === 'map') return [['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
     if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
     if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳']];
     return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
-  const READ_ROLES = ['dg', 'len', 'curio', 'hero'];
+  const READ_ROLES = ['dg', 'len', 'curio', 'hero', 'title', 'quest'];
+  const TITLE_WORDS = { map: ['영지지도', 'estatemap'], provision: ['provision', '보급품', '보급'] };
   // 직접 그린 안내 캐릭터 "까마귀 서기" (이 사이트 고유 캐릭터)
   const MASCOT_SVG = '<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 120 130"><ellipse cx="60" cy="122" rx="34" ry="6" fill="#000" opacity=".45"/><path d="M28 112c-6-30 4-62 32-62s38 32 32 62z" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M40 112c-2-18 2-34 20-34s22 16 20 34z" fill="#2a2732"/><circle cx="60" cy="40" r="26" fill="#1c1a22" stroke="#3a3542" stroke-width="2"/><path d="M52 44l-30 10 30 6z" fill="#d6a64a" stroke="#8a6a26" stroke-width="1.5"/><circle cx="68" cy="34" r="9" fill="#f3ead6"/><circle cx="70" cy="35" r="4" fill="#111"/><circle cx="68" cy="34" r="11.5" fill="none" stroke="#d6a64a" stroke-width="2.5"/><path d="M78 43q6 14 2 30" fill="none" stroke="#d6a64a" stroke-width="1.5"/><path d="M44 16l8 8M60 10v10M76 16l-7 8" stroke="#1c1a22" stroke-width="5" stroke-linecap="round"/><rect x="66" y="84" width="34" height="24" rx="3" fill="#e9dfc6" stroke="#8a6a26" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M72 92h20M72 98h20M72 104h12" stroke="#8a7a5a" stroke-width="1.5" transform="rotate(-8 83 96)"/><path d="M30 84q-14 8-10 26 10-4 16-14z" fill="#16141b" stroke="#3a3542" stroke-width="2"/></svg>';
 
@@ -705,7 +706,7 @@
   function readLen(text) { const toks = String(text).split(/[\s|]+/).map(normT).filter(Boolean); let r = null; LEN_WORDS.forEach((ws, i) => { if (r == null && ws.some(w => toks.some(t => t === w || (t.length >= 3 && w.length >= 4 && w.startsWith(t))))) r = i; }); return r; }
   function readHero(text) { const t = normT(text); let best = null; Object.keys(HERO_GUIDE).forEach(h => { [h, HERO_GUIDE[h].ko, overrides[h]].concat(HERO_GUIDE[h].alt).filter(Boolean).map(normT).forEach(w => { if (w.length >= 2 && (w.length >= 5 ? fuzzyIn(t, w) : t.includes(w)) && (!best || w.length > best.n)) best = { h, n: w.length }; }); }); return best && best.h; }
   function detectScreen(lines) { const a = normT(lines.join(' ')); const has = (w, d) => fuzzyIn(a, w, d);
-    if (has('estatemap') || (has('goals', 0) && has('rewards'))) return 'map';
+    if (has('estatemap') || (has('goals', 0) && has('rewards')) || a.includes('영지지도') || (a.includes('목표') && a.includes('보상') && a.includes('원정준비'))) return 'map';
     if (has('sellback', 1) || has('inventoryto') || has('되팔기', 0)) return 'provision';
     if (['quirks', 'equipment', 'resistances', 'campingskills', 'combatskills', 'preferredposition', 'basestats'].filter(w => has(w)).length >= 2) return 'hero';
     return null; }
@@ -723,6 +724,15 @@
   function findBox(det, keys) {
     const w = det.words.find(x => keys.some(k => x.n === k || (k.length >= 3 && x.n.includes(k)) || (k.length >= 5 && x.n.length >= 4 && Math.abs(x.n.length - k.length) <= 1 && lev(x.n, k) <= 1))); return w ? w.b : null;
   }
+  // 지도에서 고른 원정 뒤에 깔리는 붉은 얼룩을 찾는다 (지도 영역 안에서 붉은 화소가 가장 몰린 곳)
+  function findSplatter(src) {
+    const w = 200, h = Math.round(200 * src.height / src.width); const cv = document.createElement('canvas'); cv.width = w; cv.height = h; const cx = cv.getContext('2d'); cx.drawImage(src, 0, 0, w, h);
+    let d; try { d = cx.getImageData(0, 0, w, h).data; } catch (e) { return null; }
+    const red = new Uint8Array(w * h); const x0 = Math.round(w * 0.27), x1 = Math.round(w * 0.8), y0 = Math.round(h * 0.1), y1 = Math.round(h * 0.86);
+    for (let y = y0; y < y1; y++) for (let x = x0; x < x1; x++) { const i = (y * w + x) * 4; const r = d[i], g = d[i + 1], b = d[i + 2]; if (r >= 45 && g < 30 && b < 30 && r > 2.5 * Math.max(g, b) + 15) red[y * w + x] = 1; }
+    const R = 5; let best = null; for (let y = y0 + R; y < y1 - R; y++) for (let x = x0 + R; x < x1 - R; x++) { let n = 0; for (let yy = -R; yy <= R; yy++) for (let xx = -R; xx <= R; xx++) n += red[(y + yy) * w + x + xx]; if (!best || n > best.n) best = { n, x, y }; }
+    return best && best.n >= 25 ? { x: best.x / w, y: best.y / h, n: best.n } : null;
+  }
   async function hudAnalyze() {
     const src = OCR.last; if (!src) return;
     const sc = src.width > 2200 ? 2200 / src.width : (src.width < 1300 ? Math.min(3, 2200 / src.width) : 1);
@@ -730,19 +740,28 @@
     const cx = cv.getContext('2d'); cx.imageSmoothingQuality = 'high'; cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, 0, 0, cv.width, cv.height);
     const det = await recognizeDetailed(cv); const lines = det.lines.map(l => l.t); const all = lines.join(' ');
     OCR.lines = lines.filter(l => /[a-z가-힣]{3}/i.test(l)).slice(0, 24); const R = classify(lines);
-    let screen = HUD.screen !== 'auto' ? HUD.screen : (detectScreen(lines) || ({ provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind]) || null);
+    let byTitle = null;
+    if (HUD.screen === 'auto') for (const k of Object.keys(TITLE_WORDS)) { const z = (zones[k] || []).find(x => x.role === 'title'); if (!z) continue; const zt = normT((await recognizeCanvas(cropCanvas(src, z))).join(' ')); z._read = zt; if (TITLE_WORDS[k].some(w => fuzzyIn(zt, w, 1))) { byTitle = k; break; } }
+    const lvl = /견습|숙련|챔피언|apprentice|veteran|champion/.test(normT(all));
+    let screen = HUD.screen !== 'auto' ? HUD.screen : (byTitle || detectScreen(lines) || (lvl && /목표|goals/.test(normT(all)) ? 'map' : null) || ({ provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind]) || null);
     const I = { screen, dg: null, len: readLen(all), curio: R.curio, hero: null, det };
     if (screen === 'hero') I.hero = readHero(all);
     if (screen === 'provision' || screen === 'dungeon') I.dg = R.dg;
     for (const z of (screen && zones[screen]) || []) {   // 지정한 영역만 따로 읽기 (더 정확)
-      if (!READ_ROLES.includes(z.role)) continue;
+      if (!READ_ROLES.includes(z.role) || z.role === 'title') continue;
       const zt = (await recognizeCanvas(cropCanvas(src, z))).join(' '); z._read = zt;
       if (z.role === 'dg') I.dg = readDungeon(zt) || I.dg;
       if (z.role === 'len') { const l = readLen(zt); if (l != null) I.len = l; }
+      if (z.role === 'quest') { const l = readLen(zt); if (l != null) I.len = l; I.questText = normT(zt); }
       if (z.role === 'hero') I.hero = readHero(zt) || I.hero;
       if (z.role === 'curio') { const m = matchCurio([zt]); if (m) I.curio = m.en; }
     }
     if (screen === 'map' && fuzzyIn(normT(all), 'darkestlvl', 1)) I.dg = 'darkest';
+    if (screen === 'map') {
+      const na = normT(all); I.boxes = {}; DUNGEONS.forEach(d => { const b = findBox(det, wordsOf(d.en, d.ko, d.alt).concat(d.id === 'courtyard' ? ['courtyard'] : [])) || (zones.map || []).find(z => z.role === 'tag:' + d.id); if (b) I.boxes[d.id] = b; });
+      const bm = BOSSES.find(b => DG[b.group] && wordsOf(b.en, b.ko, b.alt).some(w => w.length >= 3 && (na.includes(w) || (I.questText || '').includes(w)))); if (bm) { I.boss = bm.id; if (!I.dg) I.dg = bm.group; }
+      if (!I.dg) { const sp = findSplatter(src); if (sp) { let best = null; Object.keys(I.boxes).forEach(id => { const b = I.boxes[id]; const dx = sp.x - (b.x + b.w / 2), dy = (sp.y - (b.y + b.h + 0.07)) * (src.height / src.width); const dist = Math.hypot(dx, dy); if (!best || dist < best.dist) best = { id, dist }; }); if (best && best.dist < 0.12) { I.dg = best.id; I.guess = true; } } }
+    }
     HUD.info = I; HUD.fresh = true; hudBuild();
   }
   function itemT2(id) { const en = ITEM_EN[id] || id; const p = PROV[en]; return id === 'hand' ? '맨손' : koOf(en, p ? p.ko : ITEM_KO[id]); }
@@ -792,7 +811,7 @@
       if (c.dg !== 'all') { ctx.dg = c.dg; store.set('dd.ctx', ctx); } return;
     }
     if (I.screen === 'map') DUNGEONS.forEach(d => { const b = findBox(I.det, wordsOf(d.en, d.ko, d.alt).concat(d.id === 'courtyard' ? ['courtyard'] : [])) || zone('tag:' + d.id); if (!b) return;
-      I.calls.push({ x: b.x, y: b.y + b.h + 0.006, kind: 'tag', dg: d.id, on: I.dg === d.id, title: koOf(d.en, d.ko), sub: DG_SHORT[d.id] }); });
+      I.calls.push({ x: Math.max(0.28, b.x + b.w - 0.13), y: b.y - 0.04, kind: 'tag', dg: d.id, on: I.dg === d.id, title: koOf(d.en, d.ko), sub: DG_SHORT[d.id] }); });
     const dg = I.dg || (I.screen === 'provision' ? ctx.dg : null); const len = I.len != null ? I.len : (ctx.len != null ? ctx.len : 0);
     if (!dg || !DG[dg]) { I.ask = 'dg'; I.say = I.screen === 'map' ? '지도에서 어디를 찍으셨는지 이 늙은이가 무슨 수로 압니까, 히히. 이름표나 위의 단추를 눌러 일러 주시지요.' : '그래서 이번엔 어디로 영웅들을 보내… 아니, 떠나시렵니까, 주인님?'; I.top = '<p class="dim">던전을 고르면 여기에 요약이 나옵니다.</p>'; return; }
     const d = DG[dg]; ctx = { dg, len }; store.set('dd.ctx', ctx); I.dg = dg; I.len = len; bld.dg = dg;
@@ -806,8 +825,12 @@
     }
     const party = PARTIES.find(p => p.id === d.parties[0]);
     I.top = '<div class="row"><h2 class="hudh">' + T(d.en, d.ko) + (I.len != null ? ' · ' + LEN[len] + ' 원정' : '') + '</h2></div>' + tags + '<div class="small dim">추천 영웅</div><div class="chips">' + heroChips(d.heroes.good, 'good') + '</div>';
-    I.bottom = (party ? partyCard(party, false) : '') + '<p class="small"><a href="#/parties?tag=' + dg + '">→ 다른 추천 파티</a> · <a href="#/plan/' + dg + '/' + len + '">→ 원정 준비</a></p>';
+    const boss = I.boss && BOSSES.find(x => x.id === I.boss && x.group === dg);
+    if (boss) I.top += '<div class="row"><a class="tag red" href="#/boss/' + boss.id + '">보스 원정: ' + esc(koOf(boss.en, boss.ko)) + ' — 공략 보기</a></div>';
+    if (I.guess) I.top += '<div class="small dim">지도의 붉은 표식 위치로 짐작했습니다. 틀리면 위에서 고쳐 주세요.</div>';
+    I.bottom = (boss ? '<div class="card"><h3>' + esc(koOf(boss.en, boss.ko)) + ' 공략 요점</h3><p>' + esc(boss.summary || '') + '</p>' + ul((boss.strat || []).slice(0, 4)) + (boss.party && boss.party.slots ? lineupHTML(boss.party.slots) : '') + '</div>' : '') + (party && !boss ? partyCard(party, false) : '') + '<p class="small"><a href="#/parties?tag=' + dg + '">→ 다른 추천 파티</a> · <a href="#/plan/' + dg + '/' + len + '">→ 원정 준비</a></p>';
     I.say = koOf(d.en, d.ko) + '(으)로 가시겠다고요? 히히… 훌륭한 선택이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 데려갈 일행은 아래에 펼쳐 두었습니다. 몇이나 돌아올지 내기라도 하시렵니까?';
+    if (boss) I.say = koOf(boss.en, boss.ko) + '을(를) 잡으러 가신다고요? 히히히… 장한 결심이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 그놈 상대하는 요령은 아래에 적어 두었으니, 읽고나 가시지요.';
   }
   function heroRoster() {   // 이번 원정에서 확인한 영웅과 일행 점검
     const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
@@ -836,7 +859,7 @@
     const sc = $('#hudscene'); if (!sc || !$('#hudstage')) return; const src = OCR.last; const ar = src ? src.height / src.width : 9 / 16;
     let W = window.innerWidth, H = W * ar; const maxH = window.innerHeight * (window.innerHeight > window.innerWidth ? 0.5 : 0.6); if (H > maxH) { H = maxH; W = H / ar; } W = Math.round(W); H = Math.round(H);
     const d3 = $('#hud3d'); d3.style.width = W + 'px'; d3.style.height = H + 'px';
-    if (HUD.stage) { HUD.stage.destroy(); HUD.stage = null; } if (HUD.app) { try { HUD.app.destroy(true, { children: true }); } catch (e) { /* 무시 */ } HUD.app = null; }
+    if (HUD.stage) { HUD.stage.destroy(); HUD.stage = null; } if (HUD.app && (HUD.edit || HUD.appW !== W || HUD.appH !== H)) { try { HUD.app.destroy(true, { children: true }); } catch (e) { /* 무시 */ } HUD.app = null; }
     if (HUD.edit && window.Konva) { HUD.stage = new Konva.Stage({ container: 'hudstage', width: W, height: H }); HUD.layer = new Konva.Layer(); HUD.stage.add(HUD.layer); hudDraw(); }
     else { let ok = false; if (window.PIXI) { try { pixiScene(W, H); ok = true; } catch (e) { ok = false; } } if (!ok) domScene(W, H); }
     const say = $('#hudsay'); clearInterval(HUD.typer);
@@ -853,7 +876,10 @@
   function pixiScene(W, H) {
     const host = $('#hudstage'); host.innerHTML = ''; const P = window.PIXI; const I = HUD.info, src = OCR.last;
     const still = window.matchMedia && window.matchMedia('(prefers-reduced-motion: reduce)').matches;
-    const app = new P.Application({ width: W, height: H, backgroundAlpha: 0, antialias: true, resolution: Math.min(2, window.devicePixelRatio || 1), autoDensity: true }); host.appendChild(app.view); HUD.app = app;
+    let app = HUD.app; const intro = HUD.fresh || !app;
+    if (!app) { app = new P.Application({ width: W, height: H, backgroundAlpha: 0, antialias: true, resolution: Math.min(2, window.devicePixelRatio || 1), autoDensity: true }); HUD.app = app; HUD.appW = W; HUD.appH = H; }
+    else { if (HUD.tick) app.ticker.remove(HUD.tick); app.stage.removeChildren().forEach(c => c.destroy({ children: true })); }
+    host.appendChild(app.view);
     const bgL = new P.Container(), fxL = new P.Container(), callL = new P.Container(); app.stage.addChild(bgL, fxL, callL);
     if (src) { const sp = new P.Sprite(P.Texture.from(src)); sp.width = W * 1.03; sp.height = H * 1.03; sp.position.set(-W * 0.015, -H * 0.015); bgL.addChild(sp); }
     bgL.addChild(new P.Graphics().beginFill(0x000000, src ? 0.34 : 0).drawRect(-W * 0.05, -H * 0.05, W * 1.1, H * 1.1).endFill());
@@ -876,17 +902,17 @@
         bg.lineStyle(1.5, 0x57483a, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, h, F * 0.55).endFill(); g.cx = Math.min(W - w / 2 - 6, Math.max(w / 2 + 6, c.x * W + w / 2)); g.cy = Math.min(H - h / 2 - 6, Math.max(h / 2 + 6, c.y * H + h / 2));
         if (c.ax != null) { const ln = new P.Graphics().lineStyle(2, col, 0.85).moveTo(c.ax * W, c.ay * H).lineTo(g.cx, g.cy - h / 2).beginFill(col).drawCircle(c.ax * W, c.ay * H, 4).endFill(); fxL.addChild(ln); }
       }
-      g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still ? 1 : 0; callL.addChild(g); items.push({ g, d: i * 0.045, ph: i * 1.3 });
+      g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still || !intro ? 1 : 0; callL.addChild(g); items.push({ g, d: intro ? i * 0.045 : -1, ph: i * 1.3 });
     });
     const embers = []; if (!still && src) for (let k = 0; k < 34; k++) { const e = new P.Graphics().beginFill(0xffa040).drawCircle(0, 0, 1 + Math.random() * 1.6).endFill(); e.blendMode = P.BLEND_MODES.ADD; fxL.addChild(e); embers.push({ e, x: Math.random() * W, y: Math.random() * H, v: 8 + Math.random() * 22, sw: Math.random() * 6, life: Math.random() }); }
-    HUD.par = HUD.par || { x: 0, y: 0 }; const cur = { x: 0, y: 0 }; let t = 0;
+    HUD.par = HUD.par || { x: 0, y: 0 }; const cur = HUD.cur = HUD.cur || { x: 0, y: 0 }; let t = 0;
     if (still) return;
-    app.ticker.add(() => { const dt = app.ticker.deltaMS / 1000; t += dt;
+    HUD.tick = () => { const dt = app.ticker.deltaMS / 1000; t += dt;
       cur.x += (HUD.par.x - cur.x) * 0.12; cur.y += (HUD.par.y - cur.y) * 0.12; bgL.position.set(-cur.x * 10, -cur.y * 7); fxL.position.set(cur.x * 4, cur.y * 3); callL.position.set(cur.x * 18, cur.y * 12);
       items.forEach(o => { const p = Math.min(1, Math.max(0, (t - o.d) / 0.3)); const e = 1 - Math.pow(1 - p, 3); o.g.alpha = e; o.g.scale.set(1.25 - 0.25 * e); o.g.y = o.g.cy + Math.sin(t * 1.4 + o.ph) * 1.5 + (1 - e) * 12; });
       pulses.forEach(o => { o.r.alpha = 0.35 + 0.45 * (0.5 + 0.5 * Math.sin(t * 2.4 + o.ph)); });
       embers.forEach(o => { o.life += dt * 0.12; if (o.life > 1) { o.life = 0; o.x = Math.random() * W; o.y = H + 4; } o.y -= o.v * dt; o.e.position.set(o.x + Math.sin(t + o.sw) * 8, o.y); o.e.alpha = Math.sin(o.life * Math.PI) * 0.7; if (o.y < -6) { o.y = H + 4; o.life = 0; } });
-    });
+    }; app.ticker.add(HUD.tick);
   }
   function hudDraw() {
     const st = HUD.stage, L = HUD.layer; if (!st) return; L.destroyChildren(); const W = st.width(), H = st.height(); const src = OCR.last; const F = Math.max(11, Math.round(W / 90));

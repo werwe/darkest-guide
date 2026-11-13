@@ -505,7 +505,7 @@ const DUNGEONS = [
     parties: ["classic", "blight", "gold", "frontline"], bosses: ["necromancer", "prophet"],
   },
   {
-    id: "weald", en: "Weald", ko: "삼림", alt: ["삼림지대", "숲", "황야", "윌드", "삼림지"], img: "Loading screen Weald.png", dlc: null,
+    id: "weald", en: "Weald", ko: "삼림지대", alt: ["삼림", "숲", "황야", "윌드", "삼림지"], img: "Loading screen Weald.png", dlc: null,
     summary: "균류 괴물과 도적이 사는 숲. 적의 중독 저항이 높고 출혈 저항이 낮다. 큰 적은 한 방이 아프고 작은 적은 빠르고 수가 많다.",
     enemies: "인간(도적) · 야수(거미·광견) · 이형(균류) · 불경 약간",
     dmg: { good: ["출혈 (공통 약점)", "인간 추가 피해 (현상금 사냥꾼)", "약화 (거인은 약화 저항 낮음)"], bad: ["중독 (균류는 저항 매우 높음)"] },
@@ -547,7 +547,7 @@ const DUNGEONS = [
     parties: ["bleed", "frontline", "mark", "gold"], bosses: ["swine-prince", "flesh"],
   },
   {
-    id: "cove", en: "Cove", ko: "해만", alt: ["만", "작은 만", "코브", "해안", "해안 동굴", "포구"], img: "Loading screen Cove.png", dlc: null,
+    id: "cove", en: "Cove", ko: "해안 만", alt: ["해만", "작은 만", "코브", "해안", "해안 동굴", "포구"], img: "Loading screen Cove.png", dlc: null,
     summary: "어인(이형)이 사는 침수 동굴. 비늘 때문에 출혈이 잘 안 통하고 중독이 매우 잘 통한다. 방어(PROT) 높은 적과 기절 공격이 많다.",
     enemies: "이형(Eldritch) 어인 다수 · 불경(익사체) · 갑각류",
     dmg: { good: ["중독 (저항 낮음, 방어 무시)", "이형 추가 피해 (신비학자)", "방어 관통 (도굴꾼·방패 파괴자)"], bad: ["출혈 (저항 높음)"] },
