@@ -789,6 +789,28 @@
     async tx(mode, fn) { try { const db = await this.open(); return await new Promise((ok, no) => { const t = db.transaction('caps', mode); const rq = fn(t.objectStore('caps')); t.oncomplete = () => ok(rq && rq.result); t.onerror = () => no(t.error); }); } catch (e) { return null; } },
     put(v) { return this.tx('readwrite', st => st.put(v)); }, del(k) { return this.tx('readwrite', st => st.delete(k)); }, clear() { return this.tx('readwrite', st => st.clear()); }, all() { return this.tx('readonly', st => st.getAll()); } };
   function persistCap(key, cv, info, thumb) { try { cv.toBlob(blob => { if (!blob) return; const rest = Object.assign({}, info); ['src', 'calls', 'top', 'bottom', 'say'].forEach(k => delete rest[k]); DB.put({ key, blob, info: rest, thumb: thumb || null, t: Date.now() }); }, 'image/jpeg', 0.9); } catch (e) { /* 저장 실패는 무시 (메모리에는 남아 있음) */ } }
+  // 저장해 둔 캡처와 읽은 내용을 ZIP 한 개로 내려받는다 (압축 없이 묶기만 함)
+  function zipStore(files) {
+    const tbl = new Uint32Array(256); for (let n = 0; n < 256; n++) { let c = n; for (let k = 0; k < 8; k++) c = c & 1 ? 0xEDB88320 ^ (c >>> 1) : c >>> 1; tbl[n] = c >>> 0; }
+    const crc = u => { let c = 0xFFFFFFFF; for (let i = 0; i < u.length; i++) c = tbl[(c ^ u[i]) & 0xFF] ^ (c >>> 8); return (c ^ 0xFFFFFFFF) >>> 0; };
+    const enc = new TextEncoder(); const parts = [], cen = []; let off = 0;
+    files.forEach(f => { const name = enc.encode(f.name), d = f.data, c = crc(d); const h = new DataView(new ArrayBuffer(30));
+      h.setUint32(0, 0x04034b50, true); h.setUint16(4, 20, true); h.setUint16(6, 0x0800, true); h.setUint16(8, 0, true); h.setUint32(14, c, true); h.setUint32(18, d.length, true); h.setUint32(22, d.length, true); h.setUint16(26, name.length, true);
+      parts.push(new Uint8Array(h.buffer), name, d);
+      const e = new DataView(new ArrayBuffer(46)); e.setUint32(0, 0x02014b50, true); e.setUint16(4, 20, true); e.setUint16(6, 20, true); e.setUint16(8, 0x0800, true); e.setUint32(16, c, true); e.setUint32(20, d.length, true); e.setUint32(24, d.length, true); e.setUint16(28, name.length, true); e.setUint32(42, off, true);
+      cen.push(new Uint8Array(e.buffer), name); off += 30 + name.length + d.length; });
+    const csize = cen.reduce((n, u) => n + u.length, 0); const end = new DataView(new ArrayBuffer(22)); end.setUint32(0, 0x06054b50, true); end.setUint16(8, files.length, true); end.setUint16(10, files.length, true); end.setUint32(12, csize, true); end.setUint32(16, off, true);
+    return new Blob(parts.concat(cen, [new Uint8Array(end.buffer)]), { type: 'application/zip' });
+  }
+  async function exportCaps() {
+    const rows = (await DB.all()) || []; if (!rows.length) { alert('저장된 캡처가 없습니다. 먼저 화면을 캡처하세요.'); return; }
+    const files = []; const meta = { exported: new Date().toISOString(), page: location.href.split('#')[0], session, context: ctx, bag: run.inv, zones, learned: aliases, termOverrides: overrides, captures: [] };
+    for (const r of rows) { const name = r.key.replace(':', '-').replace(/[^\w가-힣-]/g, '_') + '.jpg'; files.push({ name, data: new Uint8Array(await r.blob.arrayBuffer()) }); const i = r.info || {};
+      meta.captures.push({ file: name, key: r.key, time: new Date(r.t).toISOString(), screen: i.screen, dungeon: i.dg, length: i.len, hero: i.hero, curio: i.curio, boss: i.boss, guessedDungeon: !!i.guess, pickedSkills: i.picked || null, quirks: (i.quirks || []).map(q => ({ text: q.t, box: q.b })), lines: ((i.det || {}).lines || []).map(l => l.t) }); }
+    files.push({ name: 'session.json', data: new TextEncoder().encode(JSON.stringify(meta, (k, v) => k === '_read' ? undefined : v, 1)) });
+    const blob = zipStore(files); const u = URL.createObjectURL(blob); const a = document.createElement('a'); a.href = u; a.download = 'dd-captures-' + new Date().toISOString().slice(0, 16).replace(/[:T]/g, '') + '.zip'; document.body.appendChild(a); a.click(); a.remove(); setTimeout(() => URL.revokeObjectURL(u), 4000);
+    OCR.status = '캡처 ' + rows.length + '장을 내보냈습니다.'; dock();
+  }
   async function restoreCaps() {
     const rows = (await DB.all()) || []; if (!rows.length) return; rows.sort((a, b) => a.t - b.t); let last = null;
     for (const r of rows) { try { const bm = await createImageBitmap(r.blob); const cv = document.createElement('canvas'); cv.width = bm.width; cv.height = bm.height; cv.getContext('2d').drawImage(bm, 0, 0); const info = r.info; info.src = cv;
@@ -920,7 +942,7 @@
   V.hud = function () {
     const I = HUD.info; if (I && I.screen) hudBuild();
     const scr = (I && I.screen) || (HUD.force || null); const es = scr || 'provision';
-    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a><span class="sep"></span><div class="steps">' + STAGES.map(([v, l], i) => '<button class="step' + (scr === v ? ' cur' : '') + (stageDone(v) ? ' done' : '') + (HUD.cache[v] ? ' has' : '') + (HUD.force === v ? ' pin' : '') + '" data-hscreen="' + v + '" title="' + (HUD.cache[v] ? '이 단계에서 찍어 둔 캡처 보기' : '지금 캡처를 이 화면으로 분석') + '"><i>' + (stageDone(v) ? '✓' : i + 1) + '</i>' + l + '</button>').join('<span class="stepline"></span>') + '</div><span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="newrun" title="이번 원정의 캡처와 기록을 모두 지우고 다음 원정을 시작합니다">탐험 완료</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
+    let o = '<div class="hudfull' + (HUD.edit ? ' editing' : '') + '"><div class="hudbar"><a class="chip sm" href="#/">← 닫기</a><span class="sep"></span><div class="steps">' + STAGES.map(([v, l], i) => '<button class="step' + (scr === v ? ' cur' : '') + (stageDone(v) ? ' done' : '') + (HUD.cache[v] ? ' has' : '') + (HUD.force === v ? ' pin' : '') + '" data-hscreen="' + v + '" title="' + (HUD.cache[v] ? '이 단계에서 찍어 둔 캡처 보기' : '지금 캡처를 이 화면으로 분석') + '"><i>' + (stageDone(v) ? '✓' : i + 1) + '</i>' + l + '</button>').join('<span class="stepline"></span>') + '</div><span class="sep"></span><button class="chip sm" data-hud="rescan">다시 분석</button><button class="chip sm' + (HUD.edit ? ' on' : '') + '" data-hud="edit">영역 편집</button><button class="chip sm" data-hud="newrun" title="이번 원정의 캡처와 기록을 모두 지우고 다음 원정을 시작합니다">탐험 완료</button><button class="chip sm" data-hud="exportcaps" title="저장해 둔 캡처와 읽은 내용을 ZIP 파일로 내려받습니다">캡처 내보내기</button><button class="chip sm" data-hud="fs">전체 화면</button></div>';
     if (I && (scr === 'map' || scr === 'provision')) o += '<div class="hudbar">' + (I.ask === 'dg' ? '<b class="askb">던전 선택 ▸</b>' : '') + DUNGEONS.map(d => '<button class="chip sm' + (I.dg === d.id ? ' on' : '') + '" data-hdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '<span class="sep"></span>' + ['짧은', '중간', '긴'].map((l, i) => '<button class="chip sm' + (I.len === i ? ' on' : '') + '" data-hlen="' + i + '">' + l + '</button>').join('') + '</div>';
     if (I && scr === 'hero') o += '<div class="hudbar">' + (I.ask === 'hero' ? '<b class="askb">영웅 선택 ▸</b>' : '') + Object.keys(HERO_GUIDE).map(h => '<button class="chip sm' + (I.hero === h ? ' on' : '') + '" data-hhero="' + esc(h) + '">' + esc(heroKo(h)) + '</button>').join('') + '</div>';
     if (HUD.edit) o += '<div class="hudbar"><b>' + (STAGES.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
@@ -1076,6 +1098,7 @@
     else if (d.hroster != null) { showHero(d.hroster); return; }
     else if (d.hcurio != null && I) { I.curio = d.hcurio; hudBuild(); }
     else if (d.hud === 'rescan') { hudRun(); return; }
+    else if (d.hud === 'exportcaps') { exportCaps(); return; }
     else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
     else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
     else if (d.hud === 'newrun') { if (!confirm('탐험을 마치셨나요? 이번 원정의 캡처와 기록(던전, 영웅, 가방, 만난 기물)을 모두 지우고 다음 원정을 시작합니다.')) return; DB.clear(); HUD.heroCache = {}; OCR.last = null; OCR.thumb = null; run.inv = {}; saveRun(); session = { heroes: [], curios: [], prov: false }; saveSession(); ctx = { dg: null, len: null }; store.set('dd.ctx', ctx); HUD.info = null; HUD.force = null; HUD.pin = null; HUD.cache = {}; }
