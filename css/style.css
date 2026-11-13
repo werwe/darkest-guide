@@ -305,3 +305,6 @@ main:has(.runwrap){max-width:1560px}
 .bubble::before{content:"";position:absolute;left:-10px;bottom:12px;border:8px solid transparent;border-right-color:#8a6a26;border-left:0}
 .mimg{cursor:pointer}
 .mimg img{display:block;width:100%;border-radius:8px}
+.mtools{align-self:flex-start}
+.mpick{position:absolute;border:2px dashed var(--gold);background:rgba(214,166,74,.18);pointer-events:none;z-index:5}
+.mascot{flex-wrap:wrap}
