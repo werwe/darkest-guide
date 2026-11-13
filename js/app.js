@@ -834,8 +834,8 @@
         if (I.picked) advice = add.length || drop.length ? ' 지금 고르신 기술 중 ' + (drop.length ? drop.join(', ') + '은(는) 빼고 ' : '') + (add.length ? add.join(', ') + '을(를) 넣으시지요.' : '다른 걸 넣으시지요.') : ' 기술은 제가 권해 드릴 것과 똑같이 고르셨군요. 이럴 때도 있어야지요, 히히.'; }
       else I.calls.push({ x: 0.5, y: 0.3, kind: 'card', tone: 'ok', title: '권장 기술', lines: [b.skills.map(k => koOf(k, (SKILL[h + '|' + k] || {}).ko)).join(' · ')] });
       I.advice = advice;
-      { const tz = zone('trinkets') || TRINKET_ZONE; const tri = b.trinkets.concat(thirdTrinket(h, b.trinkets) || []).filter(n => TRK[n]);
-        if (tri.length) I.calls.push({ x: tz.x, y: tz.y, above: true, kind: 'card', tone: 'ok', title: '권장 장신구', lines: tri.map((n, i) => (i + 1) + '. ' + n + ' — ' + TRK[n].fx.slice(0, 2).join(', ')), ax: tz.x + tz.w / 2, ay: tz.y + tz.h * 0.3, cell: tz }); }
+      { const tz = zone('trinkets') || TRINKET_ZONE; const tri = b.trinkets.concat(thirdTrinket(h, b.trinkets) || []).filter(n => TRK[n]).slice(0, 3);   // 장신구 칸마다 상자 + 그림 + 이름 (설명은 마우스를 올리면)
+        tri.forEach((n, k) => I.calls.push({ kind: 'tslot', k, name: n, cell: { x: tz.x + tz.w * k / 3, y: tz.y, w: tz.w / 3, h: tz.h } })); }
       I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히.' + (I.advice || '') + (session.heroes.length >= 4 ? ' 넷을 다 보셨으니 일행 점검을 아래에 적어 두었습니다.' : ' 일행을 한 명씩 보여 주시면 제가 짝을 맞춰 보지요.'); return;
     }
     if (I.screen === 'dungeon') {
@@ -909,16 +909,19 @@
     const d3 = $('#hud3d'); d3.style.width = W + 'px'; d3.style.height = H + 'px';
     if (HUD.stage) { HUD.stage.destroy(); HUD.stage = null; } if (HUD.app && (HUD.edit || HUD.appW !== W || HUD.appH !== H)) { try { HUD.app.destroy(true, { children: true }); } catch (e) { /* 무시 */ } HUD.app = null; }
     if (HUD.edit && window.Konva) { HUD.stage = new Konva.Stage({ container: 'hudstage', width: W, height: H }); HUD.layer = new Konva.Layer(); HUD.stage.add(HUD.layer); hudDraw(); }
-    else { let ok = false; if (window.PIXI) { try { pixiScene(W, H); ok = true; } catch (e) { ok = false; } } if (!ok) domScene(W, H); }
+    else { let ok = false; if (window.PIXI) { try { pixiScene(W, H); ok = true; } catch (e) { ok = false; } } if (!ok) domScene(W, H); else { const hc = $('#hudcalls'); if (hc) hc.innerHTML = tslotHTML(); applyZoom(); } }
     const say = $('#hudsay'); clearInterval(HUD.typer);
     if (say && HUD.fresh) { const full = say.textContent; let n = 0; say.style.minHeight = say.offsetHeight + 'px'; say.textContent = ''; HUD.typer = setInterval(() => { n += 2; say.textContent = full.slice(0, n); if (n >= full.length) clearInterval(HUD.typer); }, 16); }
     HUD.fresh = false; HUD.slide = 0;
   }
+  function tslotHTML() { const I = HUD.info; if (!I || !I.calls) return '';
+    return I.calls.filter(c => c.kind === 'tslot').map(c => { const t = TRK[c.name]; const z = c.cell;
+      return '<div class="tslot' + (c.k === 1 ? ' up' : '') + '" style="left:' + (z.x * 100 + z.w * 4).toFixed(2) + '%;top:' + (z.y * 100).toFixed(2) + '%;width:' + (z.w * 92).toFixed(2) + '%;height:' + (z.h * 100).toFixed(2) + '%">' + pic(t.img, 0, '') + '<span class="tname">' + esc(t.en) + '</span><span class="ttip"><b>' + esc(t.en) + '</b>' + (c.k === 2 ? '<i>3번째 칸 (모드)</i>' : '') + t.fx.map(esc).join('<br>') + '</span></div>'; }).join(''); }
   // WebGL을 쓸 수 없을 때의 대체 표시 (캡처 그림 + HTML 표시)
   function domScene(W, H) {
     const host = $('#hudstage'); host.innerHTML = ''; if (OCR.last) { const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(OCR.last, 0, 0, W, H); host.appendChild(c); }
     const I = HUD.info; if (!I) return;
-    $('#hudcalls').innerHTML = I.calls.map(c => c.kind === 'badge' ? '<div class="call badge center ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%">' + esc(c.title) + '</div>' : c.kind === 'tag' ? '<div class="call tagc' + (c.on ? ' on' : '') + '" data-hdg="' + c.dg + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b> ' + esc(c.sub) + '</div>' : '<div class="call card ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b><br>' + c.lines.map(esc).join('<br>') + '</div>').join('');
+    $('#hudcalls').innerHTML = tslotHTML() + I.calls.filter(c => c.kind !== 'tslot').map(c => c.kind === 'badge' ? '<div class="call badge center ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%">' + esc(c.title) + '</div>' : c.kind === 'tag' ? '<div class="call tagc' + (c.on ? ' on' : '') + '" data-hdg="' + c.dg + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b> ' + esc(c.sub) + '</div>' : '<div class="call card ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b><br>' + c.lines.map(esc).join('<br>') + '</div>').join('');
   }
   // 캔버스 장면 (PixiJS, WebGL): 캡처 + 강조 칸 + 떠 있는 표시 + 불티. 마우스를 따라 층마다 다르게 움직여 깊이감을 준다.
   function pixiScene(W, H) {
@@ -937,6 +940,7 @@
     const txt = (s, size, fill, bold, wrap) => new P.Text(s, { fontFamily: font, fontSize: size, fill, fontWeight: bold ? '800' : '500', wordWrap: !!wrap, wordWrapWidth: wrap || 0, breakWords: true, lineHeight: Math.round(size * 1.4) });
     const items = [], pulses = []; let bi = 0;
     (I ? I.calls : []).forEach((c, i) => {
+      if (c.kind === 'tslot') return;
       const g = new P.Container(); const col = TONEC[c.tone] || 0xd6a64a; let w, h; const bg = new P.Graphics(); g.addChild(bg);
       if (c.kind === 'badge') {
         const t = txt(c.title, F * (c.small ? 0.95 : 1.55), c.tone === 'off' ? 0xb8b0a3 : 0xeaf6e4, true); const px = F * 0.55, py = F * 0.12; w = t.width + px * 2; h = t.height + py * 2; t.position.set(px, py); g.addChild(t);
@@ -1000,7 +1004,7 @@
   // 확대/축소: 휠로 마우스 위치를 중심으로 확대, 끌어서 이동, 더블클릭으로 원래대로
   function applyZoom() { const app = HUD.app, z = HUD.zoom; if (!app || !z) return; const W = HUD.appW, H = HUD.appH;
     z.s = Math.min(6, Math.max(1, z.s)); if (z.s === 1) { z.x = 0; z.y = 0; } z.x = Math.min(0, Math.max(W - W * z.s, z.x)); z.y = Math.min(0, Math.max(H - H * z.s, z.y));
-    app.stage.scale.set(z.s); app.stage.position.set(z.x, z.y); const el = $('#hudzoom'); if (el) { el.hidden = z.s === 1; el.textContent = z.s.toFixed(1) + '× · 끌어서 이동 · 더블클릭으로 원래대로'; }
+    app.stage.scale.set(z.s); app.stage.position.set(z.x, z.y); const hc = $('#hudcalls'); if (hc) { hc.style.transformOrigin = '0 0'; hc.style.transform = z.s === 1 ? '' : 'translate(' + z.x + 'px,' + z.y + 'px) scale(' + z.s + ')'; } const el = $('#hudzoom'); if (el) { el.hidden = z.s === 1; el.textContent = z.s.toFixed(1) + '× · 끌어서 이동 · 더블클릭으로 원래대로'; }
     const d3 = $('#hud3d'); if (d3) d3.classList.toggle('zoomed', z.s > 1); }
   document.addEventListener('wheel', e => { const sc = e.target.closest && e.target.closest('#hud3d'); if (!sc || HUD.edit || !HUD.app || !HUD.zoom) return; e.preventDefault();
     if (Math.abs(e.deltaX) > Math.abs(e.deltaY) * 1.5 && HUD.zoom.s <= 1) { wheelX += e.deltaX; if (Math.abs(wheelX) > 90 && Date.now() - wheelAt > 600) { wheelAt = Date.now(); goStage(wheelX > 0 ? 1 : -1); wheelX = 0; } return; }
