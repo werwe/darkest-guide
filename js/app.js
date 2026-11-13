@@ -368,6 +368,7 @@
     o += '<div class="small dim" style="margin-top:8px">테두리 색: <span class="tag good">아이템 사용</span> <span class="tag gold">맨손 OK</span> <span class="tag" style="color:#cdb9e6">도박</span> <span class="tag bad">건드리지 말 것</span> · 아이콘이 흐리면 가방에 그 아이템이 없음</div></div>';
     o += '</div><div class="runcol">';
     // 선택한 기물
+    o += ocrCard();
     const c = list.find(x => x.en === run.sel);
     if (!c) o += '<div class="card dim">기물을 선택하면 여기에 권장 행동과 확률이 나옵니다.</div>';
     else {
@@ -494,6 +495,105 @@
     else if (d.bdg != null) { bld.dg = d.bdg; saveBld(); }
     render(true);
   });
+
+  // ================= 화면 인식 (게임 창 캡처 → 글자 읽기 → 기물 찾기) =================
+  const OCR = { stream: null, video: null, worker: null, loading: false, busy: false, auto: false, timer: null, lines: [], status: '', thumb: null, pick: null, match: null, region: store.get('dd.ocrRegion', null) };
+  let aliases = store.get('dd.ocrAlias', {});   // 인식된 글자(정규화) -> 기물 영문명
+  const normT = s => String(s).toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
+  function lev(a, b) { const m = a.length, n = b.length; if (!m) return n; if (!n) return m; let prev = Array.from({ length: n + 1 }, (_, j) => j);
+    for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]; }
+  function matchCurio(lines) {
+    const all = normT(lines.join(' ')); const nl = lines.map(normT).filter(x => x.length >= 2); let best = null;
+    const consider = (en, score, how) => { const c = CURIOS.find(x => x.en === en); if (!c) return; if (c.dg === run.dg || c.dg === 'all') score += 0.5; if (!best || score > best.score) best = { en, score, how }; };
+    nl.forEach(l => { if (aliases[l]) consider(aliases[l], 100, '저장된 내 용어'); });
+    Object.keys(aliases).forEach(a => { if (a.length >= 3 && all.includes(a)) consider(aliases[a], 90, '저장된 내 용어'); });
+    const seen = {};
+    CURIOS.forEach(c => { if (seen[c.en]) return; seen[c.en] = 1;
+      [c.ko, overrides[c.en], c.en.replace(/\s*\(.*\)/, '')].filter(Boolean).forEach(name => { const k = normT(name); if (k.length < 2) return;
+        if (k.length >= 3 && all.includes(k)) consider(c.en, 10 + k.length, '이름 일치');
+        else nl.forEach(l => { if (l === k) consider(c.en, 10 + k.length, '이름 일치'); else if (k.length >= 4 && Math.abs(l.length - k.length) <= 2) { const r = 1 - lev(l, k) / Math.max(l.length, k.length); if (r >= 0.75) consider(c.en, r * k.length, '비슷한 이름'); } });
+      }); });
+    return best;
+  }
+  function loadScript(src) { return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('스크립트를 불러오지 못했습니다')); document.head.appendChild(s); }); }
+  async function ensureWorker() {
+    if (OCR.worker) return OCR.worker;
+    const base = new URL('vendor/tesseract/', location.href.split('#')[0]).href;
+    if (!window.Tesseract) await loadScript(base + 'tesseract.min.js');
+    OCR.worker = await window.Tesseract.createWorker(['kor', 'eng'], 1, { workerPath: base + 'worker.min.js', corePath: base, langPath: base + 'lang', gzip: true });
+    return OCR.worker;
+  }
+  async function recognizeCanvas(cv) {
+    const w = await ensureWorker(); const { data } = await w.recognize(cv);
+    return data.text.split('\n').map(x => x.trim()).filter(x => normT(x).length >= 2);
+  }
+  function grabFrame() {
+    const v = OCR.video; if (!v || !v.videoWidth) return null;
+    const W = v.videoWidth, H = v.videoHeight; const r = OCR.region || { x: 0, y: 0, w: 1, h: 1 };
+    const sx = r.x * W, sy = r.y * H, sw = Math.max(8, r.w * W), sh = Math.max(8, r.h * H);
+    const sc = sw < 1000 ? 2 : (sw > 1920 ? 1920 / sw : 1);
+    const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
+    const cx = cv.getContext('2d'); cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    const t = document.createElement('canvas'); t.width = 480; t.height = Math.round(480 * H / W); t.getContext('2d').drawImage(v, 0, 0, t.width, t.height);
+    try { OCR.thumb = t.toDataURL('image/jpeg', 0.6); } catch (e) { /* 무시 */ }
+    return cv;
+  }
+  async function ocrConnect() {
+    try {
+      const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
+      const v = document.createElement('video'); v.muted = true; v.srcObject = s; await v.play();
+      OCR.stream = s; OCR.video = v; OCR.status = '게임 화면 연결됨. 처음 인식할 때 글자 인식 데이터(약 5MB)를 내려받습니다.';
+      s.getVideoTracks()[0].addEventListener('ended', () => { ocrStop(); render(true); });
+      setTimeout(() => { grabFrame(); render(true); }, 400);
+    } catch (e) { OCR.status = '화면 공유가 취소되었거나 이 브라우저에서 지원되지 않습니다.'; }
+    render(true);
+  }
+  function ocrStop() { if (OCR.stream) OCR.stream.getTracks().forEach(t => t.stop()); clearInterval(OCR.timer); OCR.stream = OCR.video = null; OCR.auto = false; OCR.status = '연결 해제됨'; }
+  async function ocrScan(silent) {
+    if (!OCR.stream) { OCR.status = '먼저 게임 화면을 연결하세요.'; render(true); return; }
+    if (OCR.busy) return; OCR.busy = true;
+    if (!silent) { OCR.status = '인식 중…'; render(true); }
+    try {
+      const cv = grabFrame(); if (!cv) throw new Error('화면을 아직 받지 못했습니다');
+      const t0 = performance.now(); const lines = await recognizeCanvas(cv);
+      const m = matchCurio(lines); OCR.lines = lines.slice(0, 14); OCR.match = m; OCR.pick = null;
+      if (m) { const c = CURIOS.find(x => x.en === m.en); if (c.dg !== 'all' && c.dg !== run.dg) run.dg = c.dg; run.sel = m.en; saveRun(); OCR.status = '찾음: ' + koOf(c.en, c.ko) + ' (' + m.how + ', ' + Math.round(performance.now() - t0) + 'ms)'; }
+      else OCR.status = lines.length ? '기물 이름을 찾지 못했습니다. 아래에서 기물 이름에 해당하는 글자를 누른 뒤 그림판에서 기물을 골라 주면 다음부터 자동으로 찾습니다.' : '글자를 읽지 못했습니다. 기물에 마우스를 올려 이름이 보이는 상태에서 다시 시도하세요.';
+    } catch (e) { OCR.status = '인식 실패: ' + e.message + (location.protocol === 'file:' ? ' (파일로 직접 연 경우 동작하지 않습니다. 배포된 주소에서 사용하세요.)' : ''); }
+    OCR.busy = false;
+    if (!silent || OCR.match || parseHash().view === 'run') render(true);
+  }
+  function ocrCard() {
+    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return '<div class="card small dim">화면 인식은 PC의 크롬 · 엣지 등 화면 공유를 지원하는 브라우저에서만 쓸 수 있습니다.</div>';
+    const on = !!OCR.stream; const r = OCR.region;
+    let o = '<div class="card ocr"><div class="row"><h3>화면 인식</h3>' + (on ? '<button class="chip sm on" data-ocr="scan">지금 인식 (F8)</button><button class="chip sm' + (OCR.auto ? ' on' : '') + '" data-ocr="auto">자동 인식 ' + (OCR.auto ? '켜짐' : '꺼짐') + '</button><button class="chip sm" data-ocr="stop">연결 해제</button>' : '<button class="chip sm on" data-ocr="connect">게임 화면 연결</button>') + '</div>';
+    if (!on) o += '<p class="small dim">게임 창을 한 번 연결해 두면, 화면의 글자를 읽어 해당 기물을 바로 띄웁니다. 게임에서 기물에 마우스를 올려 이름이 보이는 상태에서 인식하세요. 화면은 이 컴퓨터 안에서만 처리되고 어디로도 전송되지 않습니다.</p>';
+    if (OCR.status) o += '<div class="small" style="margin:6px 0">' + esc(OCR.status) + '</div>';
+    if (on && OCR.thumb) o += '<div class="ocrprev" id="ocrprev"><img src="' + OCR.thumb + '" alt="" draggable="false">' + (r ? '<i style="left:' + r.x * 100 + '%;top:' + r.y * 100 + '%;width:' + r.w * 100 + '%;height:' + r.h * 100 + '%"></i>' : '') + '</div><div class="small dim">미리보기 위를 드래그하면 그 영역만 읽습니다(빠르고 정확해짐). ' + (r ? '<a href="#" data-ocr="noregion">영역 해제</a>' : '') + '</div>';
+    if (OCR.lines.length) o += '<div class="small dim" style="margin-top:6px">읽은 글자' + (OCR.pick != null ? ' — <b style="color:var(--gold)">이제 그림판에서 이 글자에 해당하는 기물을 누르세요</b>' : ' (기물 이름이면 눌러서 등록)') + '</div><div class="chips" style="margin:4px 0">' + OCR.lines.map((l, i) => '<button class="chip sm' + (OCR.pick === i ? ' on' : '') + '" data-opick="' + i + '">' + esc(l.slice(0, 30)) + '</button>').join('') + '</div>';
+    const na = Object.keys(aliases).length; if (na) o += '<div class="small dim">등록한 내 게임 기물 이름 ' + na + '개 · <a href="#" data-ocr="clearalias">모두 지우기</a></div>';
+    return o + '</div>';
+  }
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-ocr],[data-opick]'); if (!t) return; e.preventDefault(); const a = t.dataset.ocr;
+    if (t.dataset.opick != null) { const i = +t.dataset.opick; OCR.pick = OCR.pick === i ? null : i; render(true); }
+    else if (a === 'connect') ocrConnect();
+    else if (a === 'scan') ocrScan(false);
+    else if (a === 'stop') { ocrStop(); render(true); }
+    else if (a === 'auto') { OCR.auto = !OCR.auto; clearInterval(OCR.timer); if (OCR.auto) { OCR.timer = setInterval(() => ocrScan(true), 2500); ocrScan(true); } render(true); }
+    else if (a === 'noregion') { OCR.region = null; store.set('dd.ocrRegion', null); render(true); }
+    else if (a === 'clearalias') { if (confirm('등록한 기물 이름을 모두 지울까요?')) { aliases = {}; store.set('dd.ocrAlias', aliases); render(true); } }
+  });
+  // 읽은 글자를 고른 상태에서 기물 그림을 누르면 그 글자를 해당 기물의 이름으로 등록 (캡처 단계에서 먼저 처리)
+  document.addEventListener('click', e => { const t = e.target.closest('[data-rsel]'); if (!t || OCR.pick == null) return; const k = normT(OCR.lines[OCR.pick] || ''); if (k.length >= 2) { aliases[k] = t.dataset.rsel; store.set('dd.ocrAlias', aliases); OCR.status = '등록됨: "' + OCR.lines[OCR.pick] + '" → ' + t.dataset.rsel; } OCR.pick = null; }, true);
+  document.addEventListener('keydown', e => { if (e.key === 'F8') { e.preventDefault(); if (parseHash().view !== 'run') location.hash = '#/run'; ocrScan(false); } });
+  let drag = null;
+  document.addEventListener('pointerdown', e => { const p = e.target.closest('#ocrprev'); if (!p) return; e.preventDefault(); const b = p.getBoundingClientRect(); drag = { b, x0: (e.clientX - b.left) / b.width, y0: (e.clientY - b.top) / b.height, el: p }; });
+  document.addEventListener('pointermove', e => { if (!drag) return; const cl = v => Math.min(1, Math.max(0, v)); const x = cl((e.clientX - drag.b.left) / drag.b.width), y = cl((e.clientY - drag.b.top) / drag.b.height);
+    drag.r = { x: Math.min(x, drag.x0), y: Math.min(y, drag.y0), w: Math.abs(x - drag.x0), h: Math.abs(y - drag.y0) }; let box = drag.el.querySelector('i'); if (!box) { box = document.createElement('i'); drag.el.appendChild(box); }
+    box.style.cssText = 'left:' + drag.r.x * 100 + '%;top:' + drag.r.y * 100 + '%;width:' + drag.r.w * 100 + '%;height:' + drag.r.h * 100 + '%'; });
+  document.addEventListener('pointerup', () => { if (!drag) return; const r = drag.r; drag = null; if (r && r.w > 0.03 && r.h > 0.02) { OCR.region = r; store.set('dd.ocrRegion', r); render(true); } });
+  window.ddOcr = { recognizeCanvas, matchCurio };
 
   // ================= 라우터 =================
   function parseHash() {
