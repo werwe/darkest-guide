@@ -586,6 +586,9 @@
     OCR.worker = await window.Tesseract.createWorker(['kor', 'eng'], 1, { workerPath: base + 'worker.min.js', corePath: base, langPath: base + 'lang', gzip: true });
     return OCR.worker;
   }
+  const POOL = {};
+  function poolWorker(lang, i) { const k = lang + i; if (!POOL[k]) POOL[k] = (async () => { const base = new URL('vendor/tesseract/', location.href.split('#')[0]).href; if (!window.Tesseract) await loadScript(base + 'tesseract.min.js'); return window.Tesseract.createWorker(lang, 1, { workerPath: base + 'worker.min.js', corePath: base, langPath: base + 'lang', gzip: true }); })(); return POOL[k]; }
+  async function recogWith(cv, lang, i) { const w = await poolWorker(lang, i || 0); const { data } = await w.recognize(cv); return data; }
   async function recognizeCanvas(cv) { const w = await ensureWorker(); const { data } = await w.recognize(cv); return data.text.split('\n').map(x => x.trim()).filter(x => normT(x).length >= 2); }
   function prep(src, W, H) {   // 원본(비디오/이미지) → 인식용 캔버스 + 미리보기
     const r = OCR.region || { x: 0, y: 0, w: 1, h: 1 };
@@ -761,12 +764,16 @@
   }
   async function hudAnalyze() {
     const src = OCR.last; if (!src) return;
-    let byTitle = null;
-    if (!HUD.force) {   // 화면별 제목 자리를 한 장에 모아 한 번만 읽는다
-      const crops = Object.keys(TITLE_WORDS).map(k => (zones[k] || []).find(x => x.role === 'title') || TITLE_FALLBACK[k]).filter(Boolean).map(z => cropCanvas(src, z));
-      if (crops.length) { const cw = Math.max.apply(null, crops.map(c => c.width)), ch = crops.reduce((n, c) => n + c.height + 24, 24); const cv = document.createElement('canvas'); cv.width = cw + 48; cv.height = ch; const cx = cv.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, cv.width, cv.height); let y = 24; crops.forEach(c => { cx.drawImage(c, 24, y); y += c.height + 24; });
-        const zt = normT((await recognizeCanvas(cv)).join(' ')); byTitle = Object.keys(TITLE_WORDS).find(k => TITLE_WORDS[k].some(w => fuzzyIn(zt, w, 1))) || null; }
-    }
+    const zfind = (scr, role) => (zones[scr] || []).find(x => x.role === role);
+    const parts = [['t:map', zfind('map', 'title') || TITLE_FALLBACK.map], ['t:provision', zfind('provision', 'title') || TITLE_FALLBACK.provision], ['t:hero', zfind('hero', 'title') || TITLE_FALLBACK.hero], ['hero', zfind('hero', 'hero')], ['prov', zfind('provision', 'dg') || zfind('provision', 'len')], ['quest', zfind('map', 'quest')]].filter(x => x[1]).map(([key, z]) => ({ key, cv: cropCanvas(src, z) }));
+    const sheet = document.createElement('canvas'); sheet.width = Math.max.apply(null, parts.map(x => x.cv.width)) + 48; sheet.height = parts.reduce((n, x) => n + x.cv.height + 28, 28);
+    { const cx = sheet.getContext('2d'); cx.fillStyle = '#000'; cx.fillRect(0, 0, sheet.width, sheet.height); let y = 28; parts.forEach(x => { cx.drawImage(x.cv, 24, y); x.y0 = y - 10; x.y1 = y + x.cv.height + 10; y += x.cv.height + 28; }); }
+    const readSheet = async lang => { const data = await recogWith(sheet, lang, 0); const txt = {}; parts.forEach(x => { txt[x.key] = ''; }); (data.lines || []).forEach(l => { const cy = (l.bbox.y0 + l.bbox.y1) / 2; const x = parts.find(q => cy >= q.y0 && cy < q.y1); if (x) txt[x.key] += ' ' + l.text.trim(); }); return txt; };
+    const titleOf = txt => { const zt = normT(txt['t:map'] + txt['t:provision'] + txt['t:hero']); return Object.keys(TITLE_WORDS).find(k => TITLE_WORDS[k].some(w => fuzzyIn(zt, w, 1))) || null; };
+    const qzone = zfind('hero', 'quirks') || QUIRK_ZONE; let lang = store.get('dd.lang', 'kor');
+    let quirkJob = (!HUD.force || HUD.force === 'hero') ? readQuirkLines(src, qzone, lang).catch(() => []) : null;   // 영웅 화면일 때를 대비해 기벽은 동시에 읽어 둔다
+    let txt = await readSheet(lang); let byTitle = HUD.force ? null : titleOf(txt);
+    if (!byTitle && !HUD.force) { const other = lang === 'kor' ? 'eng' : 'kor'; const t2 = await readSheet(other); const b2 = titleOf(t2); if (b2) { byTitle = b2; txt = t2; lang = other; store.set('dd.lang', lang); if (b2 === 'hero') quirkJob = readQuirkLines(src, qzone, lang).catch(() => []); } }
     const quick = byTitle || (['map', 'provision', 'hero'].includes(HUD.force) ? HUD.force : null);
     let det = { lines: [], words: [] }, lines = [], all = '', R = { kind: 'none', dg: null, len: null, dgs: [] };
     if (!quick) { const sc = src.width > 2000 ? 2000 / src.width : (src.width < 1300 ? Math.min(3, 2000 / src.width) : 1);
@@ -778,12 +785,15 @@
     let screen = HUD.force || (byTitle || detectScreen(lines) || (lvl && /목표|goals/.test(normT(all)) ? 'map' : null) || ({ provision: 'provision', curio: 'dungeon', boss: 'dungeon' }[R.kind]) || null);
     if (!screen && HUD.pin) screen = HUD.pin;   // 자동 판단이 안 될 때만 마지막으로 직접 고른 화면을 쓴다
     const I = { screen, dg: null, len: readLen(all), curio: R.curio, hero: null, det };
-    if (screen === 'hero') I.hero = readHero(all);
+    if (screen === 'hero') I.hero = readHero(txt.hero || '') || readHero(all);
+    if (quick === 'provision') { I.dg = readDungeon(txt.prov || ''); const l = readLen(txt.prov || ''); if (l != null) I.len = l; }
+    if (quick === 'map') { const l = readLen(txt.quest || ''); if (l != null) I.len = l; I.questText = normT(txt.quest || ''); }
+    if (quick) OCR.lines = Object.keys(txt).map(k => txt[k].trim()).filter(t => normT(t).length >= 2).map(t => t.slice(0, 60));
     if (screen === 'hero') { const zr = (zones.hero || []).find(z => z.role === 'skills'); if (zr) I.picked = readSkillRow(src, zr); }
-    if (screen === 'hero') { try { I.quirks = await readQuirkLines(src, (zones.hero || []).find(z => z.role === 'quirks') || QUIRK_ZONE); } catch (e) { I.quirks = []; } }
-    if (screen === 'provision' || screen === 'dungeon') I.dg = R.dg;
+    if (screen === 'hero') { try { I.quirks = quirkJob ? await quirkJob : await readQuirkLines(src, qzone, lang); } catch (e) { I.quirks = []; } }
+    if (screen === 'provision' || screen === 'dungeon') I.dg = I.dg || R.dg;
     for (const z of (screen && zones[screen]) || []) {   // 지정한 영역만 따로 읽기 (더 정확)
-      if (!READ_ROLES.includes(z.role) || z.role === 'title') continue;
+      if (!READ_ROLES.includes(z.role) || z.role === 'title' || (quick && z.role !== 'curio')) continue;   // 빠른 경로에서는 위에서 한 번에 읽었다
       const zt = (await recognizeCanvas(cropCanvas(src, z))).join(' '); z._read = zt;
       if (z.role === 'dg') I.dg = readDungeon(zt) || I.dg;
       if (z.role === 'len') { const l = readLen(zt); if (l != null) I.len = l; }
@@ -938,8 +948,8 @@
   function matchQuirk(text) { const n = normT(text); if (n.length < 2) return null; const al = aliases[n]; if (al && al.startsWith('quirk:')) return al === 'quirk:-' ? { none: true } : (QUIRKS.find(q => q.en === al.slice(6)) || null);
     return QUIRKS.find(q => [q.en, q.ko, overrides[q.en]].concat(q.alt || [], QUIRK_ALT[q.en] || []).filter(Boolean).map(normT).some(w => n === w || (w.length >= 3 && n.includes(w)) || (w.length >= 4 && Math.abs(n.length - w.length) <= 1 && lev(n, w) <= 1))) || null; }
   // 기벽 목록을 줄 단위로 읽는다. 한 줄에 긍정·부정 기벽이 나란히 있으면 낱말 사이가 넓은 곳에서 나눈다
-  async function readQuirkLines(src, z) {
-    const cv = cropCanvas(src, z); const w = await ensureWorker(); const { data } = await w.recognize(cv); const out = [];
+  async function readQuirkLines(src, z, lang) {
+    const cv = cropCanvas(src, z); const data = lang ? await recogWith(cv, lang, 1) : (await (await ensureWorker()).recognize(cv)).data; const out = [];
     (data.lines || []).forEach(l => { const ws = (l.words || []).filter(x => normT(x.text).length); if (!ws.length) return; const lh = l.bbox.y1 - l.bbox.y0; let seg = [ws[0]];
       const flush = () => { let t = seg.map(x => x.text).join(' ').replace(/(\s+[A-Za-z0-9*×xX>\]\[|\\/~.,'"-]{1,2})+\s*$/, '').trim(); if (!/[가-힣]{2}/.test(t) && !/[A-Za-z]{4}/.test(t)) return; if (normT(t).length >= 2 && /[가-힣a-z]{2}/i.test(t)) { const x0 = seg[0].bbox.x0, x1 = seg[seg.length - 1].bbox.x1, y0 = Math.min.apply(null, seg.map(x => x.bbox.y0)), y1 = Math.max.apply(null, seg.map(x => x.bbox.y1)); out.push({ t, b: { x: z.x + z.w * x0 / cv.width, y: z.y + z.h * y0 / cv.height, w: z.w * (x1 - x0) / cv.width, h: z.h * (y1 - y0) / cv.height } }); } };
       for (let i = 1; i < ws.length; i++) { if (ws[i].bbox.x0 - ws[i - 1].bbox.x1 > lh * 1.6) { flush(); seg = []; } seg.push(ws[i]); } flush(); });
@@ -979,6 +989,7 @@
     const el = $('#hudstage'); if (!el) return;
     const base = new URL('vendor/', location.href.split('#')[0]).href;
     try { if (HUD.edit) { if (!window.Konva) await loadScript(base + 'konva/konva.min.js'); } else if (!window.PIXI) await loadScript(base + 'pixi/pixi.min.js'); } catch (e) { /* 아래에서 대체 표시 */ }
+    if (!HUD.warm) { HUD.warm = true; const lg = store.get('dd.lang', 'kor'); poolWorker(lg, 0).catch(() => {}); poolWorker(lg, 1).catch(() => {}); }
     const sc = $('#hudscene'); if (!sc || !$('#hudstage')) return; const src = OCR.last || HUD.placeholder; const ar = src ? src.height / src.width : 9 / 16;
     let W = window.innerWidth, H = W * ar; const maxH = window.innerHeight * (window.innerHeight > window.innerWidth ? 0.5 : 0.6); if (H > maxH) { H = maxH; W = H / ar; } W = Math.round(W); H = Math.round(H);
     const d3 = $('#hud3d'); d3.style.width = W + 'px'; d3.style.height = H + 'px';
