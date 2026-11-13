@@ -1,0 +1,43 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>다키스트 던전 공략 수첩</title>
+<meta name="description" content="다키스트 던전 1 한글 인터랙티브 공략: 마을, 던전별 기물, 추천 파티, 보스, 이벤트">
+<meta name="referrer" content="no-referrer">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<header class="top">
+  <a class="brand" href="#/"><span class="brand-mark">✠</span><span>공략 수첩</span></a>
+  <div class="search">
+    <input id="q" type="search" placeholder="검색: 영웅 · 기물 · 보스 · 장신구 · 용어 (한글/영문)" autocomplete="off">
+    <div id="qres" class="qres" hidden></div>
+  </div>
+  <button id="modeBtn" class="mode" title="용어 표기 방식">한/영</button>
+</header>
+<nav class="nav" id="nav">
+  <a href="#/plan" data-k="plan">원정 준비</a>
+  <a href="#/curios" data-k="curios">기물</a>
+  <a href="#/parties" data-k="parties">파티</a>
+  <a href="#/heroes" data-k="heroes">영웅</a>
+  <a href="#/bosses" data-k="bosses">보스</a>
+  <a href="#/town" data-k="town">마을</a>
+  <a href="#/events" data-k="events">이벤트</a>
+  <a href="#/trinkets" data-k="trinkets">장신구</a>
+  <a href="#/glossary" data-k="glossary">용어</a>
+</nav>
+<main id="app"></main>
+<footer class="foot">
+  비공식 팬 공략입니다. Darkest Dungeon® 및 게임 내 이미지의 권리는 Red Hook Studios에 있습니다.
+  이미지는 <a href="https://darkestdungeon.wiki.gg/" target="_blank" rel="noopener">Darkest Dungeon Wiki</a>에서 불러오며, 수치 데이터도 같은 위키를 참고했습니다.
+</footer>
+<script src="js/data/gen.js"></script>
+<script src="js/data/guide.js"></script>
+<script src="js/data/town.js"></script>
+<script src="js/data/bosses_a.js"></script>
+<script src="js/data/bosses_b.js"></script>
+<script src="js/app.js"></script>
+</body>
+</html>
