@@ -173,7 +173,7 @@
     o += '<div class="two"><div class="card"><h3>통하는 공격</h3><div class="chips">' + d.dmg.good.map(x => '<span class="tag good">' + esc(x) + '</span>').join('') + d.dmg.bad.map(x => '<span class="tag bad">✕ ' + esc(x) + '</span>').join('') + '</div><div class="small dim">적 유형: ' + esc(d.enemies) + '</div></div>' +
       '<div class="card"><h3>영웅</h3><div class="small dim" style="margin-top:6px">추천</div><div class="chips">' + heroChips(d.heroes.good, 'good') + '</div>' + (d.heroes.bad.length ? '<div class="small dim">비추천</div><div class="chips">' + heroChips(d.heroes.bad, 'bad') + '</div><div class="small dim">' + esc(d.badWhy) + '</div>' : '') + '</div></div>';
     // 보급품
-    o += '<h2>보급품 체크리스트</h2>' + chipRow(labels.map((l, i) => [String(i), l]), String(li), 'len');
+    o += '<h2 id="provsec">보급품 체크리스트</h2>' + chipRow(labels.map((l, i) => [String(i), l]), String(li), 'len');
     o += '<div class="prov">' + Object.keys(d.provisions).map(k => {
       const n = d.provisions[k][li], p = PROV[k];
       return '<label class="' + (n ? '' : 'zero') + '"><input type="checkbox" class="provck">' + pic(p.img, 0, 'ico') + '<span>' + T(p.en, p.ko) + '</span><span class="n">' + (n ? '×' + n : '–') + '</span></label>';
@@ -368,7 +368,6 @@
     o += '<div class="small dim" style="margin-top:8px">테두리 색: <span class="tag good">아이템 사용</span> <span class="tag gold">맨손 OK</span> <span class="tag" style="color:#cdb9e6">도박</span> <span class="tag bad">건드리지 말 것</span> · 아이콘이 흐리면 가방에 그 아이템이 없음</div></div>';
     o += '</div><div class="runcol">';
     // 선택한 기물
-    o += ocrCard();
     const c = list.find(x => x.en === run.sel);
     if (!c) o += '<div class="card dim">기물을 선택하면 여기에 권장 행동과 확률이 나옵니다.</div>';
     else {
@@ -496,25 +495,76 @@
     render(true);
   });
 
-  // ================= 화면 인식 (게임 창 캡처 → 글자 읽기 → 기물 찾기) =================
-  const OCR = { stream: null, video: null, worker: null, loading: false, busy: false, auto: false, timer: null, lines: [], status: '', thumb: null, pick: null, match: null, region: store.get('dd.ocrRegion', null) };
-  let aliases = store.get('dd.ocrAlias', {});   // 인식된 글자(정규화) -> 기물 영문명
+  // ================= 화면 인식 (게임 창 캡처 → 글자 읽기 → 상황 판단 → 맞는 페이지로 이동) =================
+  const OCR = { stream: null, video: null, worker: null, busy: false, auto: false, timer: null, lines: [], status: '', thumb: null, last: null, pick: null, result: null, lastKey: '', open: store.get('dd.dockOpen', false), media: false, audio: null, ask: null, region: store.get('dd.ocrRegion', null) };
+  let aliases = store.get('dd.ocrAlias', {});   // 읽은 글자(정규화) -> 'curio:영문명' | 'dg:id' | 'len:0~2' | 'screen:provision|map' | 'boss:id'
+  Object.keys(aliases).forEach(k => { if (!/^[a-z]+:/.test(aliases[k])) aliases[k] = 'curio:' + aliases[k]; });
+  let ctx = store.get('dd.ctx', { dg: null, len: null });   // 마지막으로 인식한 던전/길이 (보급품 화면에 던전 이름이 없을 때 사용)
   const normT = s => String(s).toLowerCase().replace(/[^0-9a-z가-힣]/g, '');
   function lev(a, b) { const m = a.length, n = b.length; if (!m) return n; if (!n) return m; let prev = Array.from({ length: n + 1 }, (_, j) => j);
     for (let i = 1; i <= m; i++) { const cur = [i]; for (let j = 1; j <= n; j++) cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (a[i - 1] === b[j - 1] ? 0 : 1)); prev = cur; } return prev[n]; }
-  function matchCurio(lines) {
-    const all = normT(lines.join(' ')); const nl = lines.map(normT).filter(x => x.length >= 2); let best = null;
-    const consider = (en, score, how) => { const c = CURIOS.find(x => x.en === en); if (!c) return; if (c.dg === run.dg || c.dg === 'all') score += 0.5; if (!best || score > best.score) best = { en, score, how }; };
-    nl.forEach(l => { if (aliases[l]) consider(aliases[l], 100, '저장된 내 용어'); });
-    Object.keys(aliases).forEach(a => { if (a.length >= 3 && all.includes(a)) consider(aliases[a], 90, '저장된 내 용어'); });
+  const countIn = (hay, needle) => { let n = 0, i = 0; while ((i = hay.indexOf(needle, i)) >= 0) { n++; i += needle.length; } return n; };
+  // 키워드 표 (영문 원문 + 이 가이드의 한글 + 다른 번역 후보 + 사용자가 용어 사전에 적은 용어). 실제 캡처로 계속 보강할 부분.
+  const LEN_WORDS = [['short', '짧은', '짧음', '단거리'], ['medium', '중간', '보통'], ['long', '장거리', '긴원정', '김']];
+  const SCREEN_WORDS = { provision: ['provision', 'provisions', '보급', '보급품', '물자', '식량및물자'], map: ['embark', 'expedition', 'questlength', '원정', '출정', '출발'] };
+  function wordsOf(en, ko, alt) { return [en, ko, overrides[en]].concat(alt || []).filter(Boolean).map(normT).filter(k => k.length >= 2); }
+  function matchCurio(lines, all, nl) {
+    all = all || normT(lines.join(' ')); nl = nl || lines.map(normT).filter(x => x.length >= 2); let best = null;
+    const consider = (en, score, how) => { const c = CURIOS.find(x => x.en === en); if (!c) return; if (c.dg === (ctx.dg || run.dg) || c.dg === 'all') score += 0.5; if (!best || score > best.score) best = { en, score, how }; };
     const seen = {};
     CURIOS.forEach(c => { if (seen[c.en]) return; seen[c.en] = 1;
       [c.ko, overrides[c.en], c.en.replace(/\s*\(.*\)/, '')].filter(Boolean).forEach(name => { const k = normT(name); if (k.length < 2) return;
-        if (k.length >= 3 && all.includes(k)) consider(c.en, 10 + k.length, '이름 일치');
+        if (k.length >= 4 && all.includes(k)) consider(c.en, 10 + k.length, '이름 일치');
         else nl.forEach(l => { if (l === k) consider(c.en, 10 + k.length, '이름 일치'); else if (k.length >= 4 && Math.abs(l.length - k.length) <= 2) { const r = 1 - lev(l, k) / Math.max(l.length, k.length); if (r >= 0.75) consider(c.en, r * k.length, '비슷한 이름'); } });
       }); });
     return best;
   }
+  // 읽은 글자로 지금 어떤 화면인지 판단
+  function classify(lines) {
+    const all = normT(lines.join(' ')); const nl = lines.map(normT).filter(x => x.length >= 2); const toks = lines.join(' ').split(/\s+/).map(normT).filter(Boolean);
+    const R = { kind: 'none', dg: null, len: null, dgs: [], why: [] };
+    const learned = {}; const hit = (k, v) => { (learned[k] = learned[k] || []).push(v); };
+    Object.keys(aliases).forEach(a => { if (nl.includes(a) || (a.length >= 3 && all.includes(a))) { const [k, v] = aliases[a].split(/:(.*)/); hit(k, v); } });
+    // 던전: 화면에 여러 던전 이름이 보일 수 있으므로 가장 많이 나온 이름을 고른다
+    const cnt = {};
+    DUNGEONS.forEach(d => { if (d.id === 'darkest') return; let n = 0; wordsOf(d.en, d.ko, d.alt).forEach(w => { n = Math.max(n, w.length >= 3 ? countIn(all, w) : toks.filter(t => t === w).length); }); if (n) cnt[d.id] = n; });
+    (learned.dg || []).forEach(id => { cnt[id] = (cnt[id] || 0) + 5; });
+    R.dgs = Object.keys(cnt).sort((a, b) => cnt[b] - cnt[a]);
+    if (R.dgs.length === 1 || (R.dgs.length > 1 && cnt[R.dgs[0]] > cnt[R.dgs[1]])) R.dg = R.dgs[0];
+    // 길이
+    if (learned.len) R.len = +learned.len[0];
+    else LEN_WORDS.forEach((ws, i) => { if (R.len == null && ws.some(w => toks.includes(w) || (w.length >= 5 && all.includes(w)))) R.len = i; });
+    // 보급품 화면: 보급품 이름이 여러 개 보이거나 화면 제목이 보임
+    const provHits = PROVISIONS.filter(p => wordsOf(p.en, p.ko, p.alt).some(w => w.length >= 3 ? all.includes(w) : toks.includes(w))).map(p => p.en);
+    const isProv = (learned.screen || []).includes('provision') || provHits.length >= 3 || (provHits.length >= 2 && SCREEN_WORDS.provision.some(w => all.includes(w)));
+    const boss = (learned.boss || [])[0] || (BOSSES.find(b => wordsOf(b.en, b.ko, b.alt).some(w => w.length >= 4 && all.includes(w))) || {}).id;
+    const curio = learned.curio ? { en: learned.curio[0], how: '등록한 내 용어' } : matchCurio(lines, all, nl);
+    if (isProv) { R.kind = 'provision'; R.why.push('보급품 이름 ' + provHits.length + '개'); }
+    else if ((learned.screen || []).includes('map')) R.kind = 'map';
+    else if (curio) { R.kind = 'curio'; R.curio = curio.en; R.why.push(curio.how); }
+    else if (boss) { R.kind = 'boss'; R.boss = boss; }
+    else if (R.dgs.length) { R.kind = 'map'; R.why.push('던전 이름'); }
+    return R;
+  }
+  function applyResult(R, silentSame) {
+    const key = [R.kind, R.dg, R.len, R.curio, R.boss].join('|');
+    if (silentSame && key === OCR.lastKey) return; OCR.lastKey = key; OCR.ask = null;
+    const dgName = id => koOf(DG[id].en, DG[id].ko); const LEN = ['짧은', '중간', '긴'];
+    if (R.kind === 'curio') { const c = CURIOS.find(x => x.en === R.curio); if (c.dg !== 'all' && c.dg !== run.dg) run.dg = c.dg; run.sel = c.en; saveRun(); OCR.status = '탐험 중 · 기물: ' + koOf(c.en, c.ko) + ' → 원정 진행'; go('#/run/' + run.dg); return; }
+    if (R.kind === 'boss') { const b = BOSSES.find(x => x.id === R.boss); OCR.status = '보스: ' + koOf(b.en, b.ko) + ' → 보스 공략'; go('#/boss/' + b.id); return; }
+    if (R.kind === 'provision') {
+      const dg = R.dg || ctx.dg, len = R.len != null ? R.len : (ctx.len != null ? ctx.len : 0);
+      if (!dg) { OCR.status = '보급품 구매 화면 · 어느 던전인지 못 읽었습니다. 골라 주세요.'; OCR.ask = { kind: 'provision', len }; return; }
+      ctx = { dg, len }; store.set('dd.ctx', ctx); OCR.status = '보급품 구매 화면 · ' + dgName(dg) + ' · ' + LEN[len] + ' 원정 → 보급품 체크리스트'; go('#/plan/' + dg + '/' + len, 'provsec'); return;
+    }
+    if (R.kind === 'map') {
+      if (!R.dg) { OCR.status = '원정 선택 화면 · 던전 이름이 여러 개 보여서 하나로 정하지 못했습니다. 골라 주세요.'; OCR.ask = { kind: 'map', len: R.len, dgs: R.dgs }; return; }
+      ctx = { dg: R.dg, len: R.len != null ? R.len : ctx.len }; store.set('dd.ctx', ctx); bld.dg = R.dg; saveBld();
+      OCR.status = '원정 선택 화면 · ' + dgName(R.dg) + (R.len != null ? ' · ' + LEN[R.len] + ' 원정' : '') + ' → 추천 파티'; go('#/parties?tag=' + R.dg); return;
+    }
+    OCR.status = OCR.lines.length ? '어떤 화면인지 알아내지 못했습니다. 아래 읽은 글자 중 단서가 되는 것을 눌러 무엇인지 알려 주면 다음부터 인식합니다.' : '글자를 읽지 못했습니다.';
+  }
+  function go(hash, scrollId) { if (location.hash !== hash) location.hash = hash; else render(true); if (scrollId) setTimeout(() => { const el = document.getElementById(scrollId); if (el) el.scrollIntoView({ block: 'start' }); }, 60); }
   function loadScript(src) { return new Promise((ok, no) => { const s = document.createElement('script'); s.src = src; s.onload = ok; s.onerror = () => no(new Error('스크립트를 불러오지 못했습니다')); document.head.appendChild(s); }); }
   async function ensureWorker() {
     if (OCR.worker) return OCR.worker;
@@ -523,19 +573,16 @@
     OCR.worker = await window.Tesseract.createWorker(['kor', 'eng'], 1, { workerPath: base + 'worker.min.js', corePath: base, langPath: base + 'lang', gzip: true });
     return OCR.worker;
   }
-  async function recognizeCanvas(cv) {
-    const w = await ensureWorker(); const { data } = await w.recognize(cv);
-    return data.text.split('\n').map(x => x.trim()).filter(x => normT(x).length >= 2);
-  }
-  function grabFrame() {
-    const v = OCR.video; if (!v || !v.videoWidth) return null;
-    const W = v.videoWidth, H = v.videoHeight; const r = OCR.region || { x: 0, y: 0, w: 1, h: 1 };
+  async function recognizeCanvas(cv) { const w = await ensureWorker(); const { data } = await w.recognize(cv); return data.text.split('\n').map(x => x.trim()).filter(x => normT(x).length >= 2); }
+  function prep(src, W, H) {   // 원본(비디오/이미지) → 인식용 캔버스 + 미리보기
+    const r = OCR.region || { x: 0, y: 0, w: 1, h: 1 };
     const sx = r.x * W, sy = r.y * H, sw = Math.max(8, r.w * W), sh = Math.max(8, r.h * H);
     const sc = sw < 1000 ? 2 : (sw > 1920 ? 1920 / sw : 1);
     const cv = document.createElement('canvas'); cv.width = Math.round(sw * sc); cv.height = Math.round(sh * sc);
-    const cx = cv.getContext('2d'); cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(v, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
-    const t = document.createElement('canvas'); t.width = 480; t.height = Math.round(480 * H / W); t.getContext('2d').drawImage(v, 0, 0, t.width, t.height);
-    try { OCR.thumb = t.toDataURL('image/jpeg', 0.6); } catch (e) { /* 무시 */ }
+    const cx = cv.getContext('2d'); cx.filter = 'grayscale(1) contrast(1.4)'; cx.drawImage(src, sx, sy, sw, sh, 0, 0, cv.width, cv.height);
+    const t = document.createElement('canvas'); t.width = 480; t.height = Math.round(480 * H / W); t.getContext('2d').drawImage(src, 0, 0, t.width, t.height);
+    const full = document.createElement('canvas'); full.width = W; full.height = H; full.getContext('2d').drawImage(src, 0, 0);
+    try { OCR.thumb = t.toDataURL('image/jpeg', 0.6); OCR.last = full; } catch (e) { /* 무시 */ }
     return cv;
   }
   async function ocrConnect() {
@@ -543,57 +590,84 @@
       const s = await navigator.mediaDevices.getDisplayMedia({ video: { frameRate: 5 }, audio: false });
       const v = document.createElement('video'); v.muted = true; v.srcObject = s; await v.play();
       OCR.stream = s; OCR.video = v; OCR.status = '게임 화면 연결됨. 처음 인식할 때 글자 인식 데이터(약 5MB)를 내려받습니다.';
-      s.getVideoTracks()[0].addEventListener('ended', () => { ocrStop(); render(true); });
-      setTimeout(() => { grabFrame(); render(true); }, 400);
+      s.getVideoTracks()[0].addEventListener('ended', () => { ocrStop(); dock(); });
+      setTimeout(() => { if (OCR.video && OCR.video.videoWidth) { prep(OCR.video, OCR.video.videoWidth, OCR.video.videoHeight); dock(); } }, 500);
     } catch (e) { OCR.status = '화면 공유가 취소되었거나 이 브라우저에서 지원되지 않습니다.'; }
-    render(true);
+    dock();
   }
   function ocrStop() { if (OCR.stream) OCR.stream.getTracks().forEach(t => t.stop()); clearInterval(OCR.timer); OCR.stream = OCR.video = null; OCR.auto = false; OCR.status = '연결 해제됨'; }
-  async function ocrScan(silent) {
-    if (!OCR.stream) { OCR.status = '먼저 게임 화면을 연결하세요.'; render(true); return; }
+  async function ocrRun(src, W, H, silent) {
     if (OCR.busy) return; OCR.busy = true;
-    if (!silent) { OCR.status = '인식 중…'; render(true); }
+    if (!silent) { OCR.status = '인식 중…'; OCR.open = true; dock(); }
     try {
-      const cv = grabFrame(); if (!cv) throw new Error('화면을 아직 받지 못했습니다');
-      const t0 = performance.now(); const lines = await recognizeCanvas(cv);
-      const m = matchCurio(lines); OCR.lines = lines.slice(0, 14); OCR.match = m; OCR.pick = null;
-      if (m) { const c = CURIOS.find(x => x.en === m.en); if (c.dg !== 'all' && c.dg !== run.dg) run.dg = c.dg; run.sel = m.en; saveRun(); OCR.status = '찾음: ' + koOf(c.en, c.ko) + ' (' + m.how + ', ' + Math.round(performance.now() - t0) + 'ms)'; }
-      else OCR.status = lines.length ? '기물 이름을 찾지 못했습니다. 아래에서 기물 이름에 해당하는 글자를 누른 뒤 그림판에서 기물을 골라 주면 다음부터 자동으로 찾습니다.' : '글자를 읽지 못했습니다. 기물에 마우스를 올려 이름이 보이는 상태에서 다시 시도하세요.';
+      const t0 = performance.now(); const lines = await recognizeCanvas(prep(src, W, H));
+      OCR.lines = lines.slice(0, 24); OCR.pick = null; OCR.result = classify(lines); applyResult(OCR.result, silent);
+      OCR.ms = Math.round(performance.now() - t0);
     } catch (e) { OCR.status = '인식 실패: ' + e.message + (location.protocol === 'file:' ? ' (파일로 직접 연 경우 동작하지 않습니다. 배포된 주소에서 사용하세요.)' : ''); }
-    OCR.busy = false;
-    if (!silent || OCR.match || parseHash().view === 'run') render(true);
+    OCR.busy = false; dock();
   }
-  function ocrCard() {
-    if (!navigator.mediaDevices || !navigator.mediaDevices.getDisplayMedia) return '<div class="card small dim">화면 인식은 PC의 크롬 · 엣지 등 화면 공유를 지원하는 브라우저에서만 쓸 수 있습니다.</div>';
-    const on = !!OCR.stream; const r = OCR.region;
-    let o = '<div class="card ocr"><div class="row"><h3>화면 인식</h3>' + (on ? '<button class="chip sm on" data-ocr="scan">지금 인식 (F8)</button><button class="chip sm' + (OCR.auto ? ' on' : '') + '" data-ocr="auto">자동 인식 ' + (OCR.auto ? '켜짐' : '꺼짐') + '</button><button class="chip sm" data-ocr="stop">연결 해제</button>' : '<button class="chip sm on" data-ocr="connect">게임 화면 연결</button>') + '</div>';
-    if (!on) o += '<p class="small dim">게임 창을 한 번 연결해 두면, 화면의 글자를 읽어 해당 기물을 바로 띄웁니다. 게임에서 기물에 마우스를 올려 이름이 보이는 상태에서 인식하세요. 화면은 이 컴퓨터 안에서만 처리되고 어디로도 전송되지 않습니다.</p>';
-    if (OCR.status) o += '<div class="small" style="margin:6px 0">' + esc(OCR.status) + '</div>';
-    if (on && OCR.thumb) o += '<div class="ocrprev" id="ocrprev"><img src="' + OCR.thumb + '" alt="" draggable="false">' + (r ? '<i style="left:' + r.x * 100 + '%;top:' + r.y * 100 + '%;width:' + r.w * 100 + '%;height:' + r.h * 100 + '%"></i>' : '') + '</div><div class="small dim">미리보기 위를 드래그하면 그 영역만 읽습니다(빠르고 정확해짐). ' + (r ? '<a href="#" data-ocr="noregion">영역 해제</a>' : '') + '</div>';
-    if (OCR.lines.length) o += '<div class="small dim" style="margin-top:6px">읽은 글자' + (OCR.pick != null ? ' — <b style="color:var(--gold)">이제 그림판에서 이 글자에 해당하는 기물을 누르세요</b>' : ' (기물 이름이면 눌러서 등록)') + '</div><div class="chips" style="margin:4px 0">' + OCR.lines.map((l, i) => '<button class="chip sm' + (OCR.pick === i ? ' on' : '') + '" data-opick="' + i + '">' + esc(l.slice(0, 30)) + '</button>').join('') + '</div>';
-    const na = Object.keys(aliases).length; if (na) o += '<div class="small dim">등록한 내 게임 기물 이름 ' + na + '개 · <a href="#" data-ocr="clearalias">모두 지우기</a></div>';
-    return o + '</div>';
+  function ocrScan(silent) {
+    const v = OCR.video; if (!v || !v.videoWidth) { OCR.status = '먼저 게임 화면을 연결하세요. (또는 스크린샷을 Ctrl+V로 붙여 넣기)'; OCR.open = true; dock(); return; }
+    return ocrRun(v, v.videoWidth, v.videoHeight, silent);
+  }
+  // 미디어 키(다음 곡 등)를 전역 단축키로 사용 — 설치 없이 쓰는 실험적 방법
+  function mediaToggle() {
+    if (OCR.media) { OCR.media = false; if (OCR.audio) { OCR.audio.pause(); OCR.audio = null; } return; }
+    try {
+      const ac = new (window.AudioContext || window.webkitAudioContext)(); const osc = ac.createOscillator(), g = ac.createGain(), dst = ac.createMediaStreamDestination();
+      g.gain.value = 0.0001; osc.connect(g); g.connect(dst); osc.start();
+      const a = new Audio(); a.srcObject = dst.stream; a.play(); OCR.audio = a; OCR.media = true;
+      if (navigator.mediaSession) { navigator.mediaSession.metadata = new MediaMetadata({ title: '공략 수첩 화면 인식 대기 중' }); ['nexttrack', 'previoustrack', 'play', 'pause'].forEach(k => { try { navigator.mediaSession.setActionHandler(k, () => { if (OCR.audio) OCR.audio.play(); ocrScan(false); }); } catch (e) { /* 무시 */ } }); }
+    } catch (e) { OCR.status = '미디어 키를 쓸 수 없는 브라우저입니다.'; }
+  }
+  function dock() {
+    let el = $('#dock'); if (!el) { el = document.createElement('div'); el.id = 'dock'; document.body.appendChild(el); }
+    const sup = navigator.mediaDevices && navigator.mediaDevices.getDisplayMedia; const on = !!OCR.stream; const r = OCR.region;
+    if (!OCR.open) { el.className = 'dock closed'; el.innerHTML = '<button class="dockbtn" data-ocr="open">' + (on ? '● ' : '') + '화면 인식</button>'; return; }
+    el.className = 'dock';
+    let o = '<div class="row"><h3>화면 인식</h3><button class="xbtn" data-ocr="close" title="접기">▾</button></div>';
+    o += '<div class="row" style="margin-top:6px">' + (on ? '<button class="chip sm on" data-ocr="scan">지금 인식 (F8)</button><button class="chip sm' + (OCR.auto ? ' on' : '') + '" data-ocr="auto">자동 ' + (OCR.auto ? '켜짐' : '꺼짐') + '</button><button class="chip sm" data-ocr="stop">연결 해제</button>' : (sup ? '<button class="chip sm on" data-ocr="connect">게임 화면 연결</button>' : '<span class="small dim">이 브라우저는 화면 연결을 지원하지 않습니다. 스크린샷 붙여 넣기는 가능합니다.</span>')) + '<button class="chip sm' + (OCR.media ? ' on' : '') + '" data-ocr="media" title="키보드의 미디어 키(다음 곡 등)를 누르면 인식합니다. 게임 중에도 동작할 수 있는 실험적 방법입니다.">미디어 키 ' + (OCR.media ? '켜짐' : '꺼짐') + '</button></div>';
+    if (OCR.status) o += '<div class="dockstatus">' + esc(OCR.status) + (OCR.ms ? ' <span class="dim">(' + OCR.ms + 'ms)</span>' : '') + '</div>';
+    if (OCR.ask) o += '<div class="chips" style="margin:4px 0">' + DUNGEONS.filter(d => !OCR.ask.dgs || !OCR.ask.dgs.length || OCR.ask.dgs.includes(d.id)).map(d => '<button class="chip sm" data-oask="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '</div>';
+    if (OCR.thumb) o += '<div class="ocrprev" id="ocrprev"><img src="' + OCR.thumb + '" alt="" draggable="false">' + (r ? '<i style="left:' + r.x * 100 + '%;top:' + r.y * 100 + '%;width:' + r.w * 100 + '%;height:' + r.h * 100 + '%"></i>' : '') + '</div><div class="small dim">미리보기를 드래그하면 그 영역만 읽습니다. ' + (r ? '<a href="#" data-ocr="noregion">영역 해제</a> · ' : '') + '<a href="#" data-ocr="save">이 캡처 저장</a></div>';
+    if (OCR.lines.length) {
+      o += '<div class="small dim" style="margin-top:6px">읽은 글자 — 단서가 되는 글자를 누르면 뜻을 등록할 수 있습니다</div><div class="chips docklines">' + OCR.lines.map((l, i) => '<button class="chip sm' + (OCR.pick === i ? ' on' : '') + '" data-opick="' + i + '">' + esc(l.slice(0, 28)) + '</button>').join('') + '</div>';
+      if (OCR.pick != null) { const seen = {};
+        o += '<select class="field" id="oteach" style="width:100%"><option value="">"' + esc(OCR.lines[OCR.pick].slice(0, 20)) + '" 은(는) 무엇인가요?</option><optgroup label="화면 종류"><option value="screen:map">원정 선택 화면</option><option value="screen:provision">보급품 구매 화면</option></optgroup><optgroup label="던전">' + DUNGEONS.map(d => '<option value="dg:' + d.id + '">' + esc(d.ko + ' (' + d.en + ')') + '</option>').join('') + '</optgroup><optgroup label="원정 길이"><option value="len:0">짧은 원정</option><option value="len:1">중간 원정</option><option value="len:2">긴 원정</option></optgroup><optgroup label="기물">' + CURIOS.filter(c => !seen[c.en] && (seen[c.en] = 1)).map(c => '<option value="curio:' + esc(c.en) + '">' + esc(c.ko + ' (' + c.en + ')') + '</option>').join('') + '</optgroup><optgroup label="보스">' + BOSSES.map(b => '<option value="boss:' + b.id + '">' + esc(b.ko + ' (' + b.en + ')') + '</option>').join('') + '</optgroup></select>'; }
+    }
+    const na = Object.keys(aliases).length;
+    o += '<details class="small dim" style="margin-top:6px"><summary>사용법 · 게임 중 단축키</summary><ul><li>게임 창을 연결한 뒤 인식하면, 화면에 따라 추천 파티 · 보급품 체크리스트 · 기물 안내로 이동합니다.</li><li><b>게임 중 단축키</b>: 저장소의 <code>extension</code> 폴더를 크롬 확장으로 설치하면 전역 단축키(기본 Ctrl+Shift+1)로 인식합니다. 설치 방법은 README 참고. 설치 없이 쓰려면 "미디어 키"를 켜고 키보드의 다음 곡 키를 눌러 보세요.</li><li>연결 없이도 스크린샷을 찍어 이 페이지에 <b>Ctrl+V</b>로 붙여 넣으면 인식합니다.</li><li>화면은 이 컴퓨터 안에서만 처리됩니다.</li></ul>' + (na ? '등록한 글자 ' + na + '개 · <a href="#" data-ocr="clearalias">모두 지우기</a>' : '') + '</details>';
+    el.innerHTML = o;
   }
   document.addEventListener('click', e => {
-    const t = e.target.closest('[data-ocr],[data-opick]'); if (!t) return; e.preventDefault(); const a = t.dataset.ocr;
-    if (t.dataset.opick != null) { const i = +t.dataset.opick; OCR.pick = OCR.pick === i ? null : i; render(true); }
-    else if (a === 'connect') ocrConnect();
-    else if (a === 'scan') ocrScan(false);
-    else if (a === 'stop') { ocrStop(); render(true); }
-    else if (a === 'auto') { OCR.auto = !OCR.auto; clearInterval(OCR.timer); if (OCR.auto) { OCR.timer = setInterval(() => ocrScan(true), 2500); ocrScan(true); } render(true); }
-    else if (a === 'noregion') { OCR.region = null; store.set('dd.ocrRegion', null); render(true); }
-    else if (a === 'clearalias') { if (confirm('등록한 기물 이름을 모두 지울까요?')) { aliases = {}; store.set('dd.ocrAlias', aliases); render(true); } }
+    const t = e.target.closest('[data-ocr],[data-opick],[data-oask]'); if (!t) return; e.preventDefault(); const a = t.dataset.ocr;
+    if (t.dataset.opick != null) { const i = +t.dataset.opick; OCR.pick = OCR.pick === i ? null : i; }
+    else if (t.dataset.oask != null) { const R = Object.assign({}, OCR.result || {}, { kind: OCR.ask.kind, dg: t.dataset.oask, len: OCR.ask.len }); applyResult(R, false); }
+    else if (a === 'open' || a === 'close') { OCR.open = a === 'open'; store.set('dd.dockOpen', OCR.open); }
+    else if (a === 'connect') { ocrConnect(); return; }
+    else if (a === 'scan') { ocrScan(false); return; }
+    else if (a === 'stop') ocrStop();
+    else if (a === 'auto') { OCR.auto = !OCR.auto; clearInterval(OCR.timer); if (OCR.auto) { OCR.timer = setInterval(() => ocrScan(true), 2500); ocrScan(true); } }
+    else if (a === 'media') mediaToggle();
+    else if (a === 'noregion') { OCR.region = null; store.set('dd.ocrRegion', null); }
+    else if (a === 'save') { if (OCR.last) OCR.last.toBlob(b => { const u = URL.createObjectURL(b); const l = document.createElement('a'); l.href = u; l.download = 'dd-capture-' + Date.now() + '.png'; l.click(); setTimeout(() => URL.revokeObjectURL(u), 2000); }); }
+    else if (a === 'clearalias') { if (confirm('등록한 글자를 모두 지울까요?')) { aliases = {}; store.set('dd.ocrAlias', aliases); } }
+    dock();
   });
-  // 읽은 글자를 고른 상태에서 기물 그림을 누르면 그 글자를 해당 기물의 이름으로 등록 (캡처 단계에서 먼저 처리)
-  document.addEventListener('click', e => { const t = e.target.closest('[data-rsel]'); if (!t || OCR.pick == null) return; const k = normT(OCR.lines[OCR.pick] || ''); if (k.length >= 2) { aliases[k] = t.dataset.rsel; store.set('dd.ocrAlias', aliases); OCR.status = '등록됨: "' + OCR.lines[OCR.pick] + '" → ' + t.dataset.rsel; } OCR.pick = null; }, true);
-  document.addEventListener('keydown', e => { if (e.key === 'F8') { e.preventDefault(); if (parseHash().view !== 'run') location.hash = '#/run'; ocrScan(false); } });
+  document.addEventListener('change', e => { if (e.target.id !== 'oteach' || !e.target.value || OCR.pick == null) return; const k = normT(OCR.lines[OCR.pick]); if (k.length >= 2) { aliases[k] = e.target.value; store.set('dd.ocrAlias', aliases); } OCR.pick = null; OCR.result = classify(OCR.lines); applyResult(OCR.result, false); dock(); });
+  document.addEventListener('keydown', e => { if (e.key === 'F8') { e.preventDefault(); ocrScan(false); } });
+  // 크롬 확장(전역 단축키)이 보내는 신호
+  window.addEventListener('message', e => { if (e.source === window && e.data && e.data.ddCapture === 1) ocrScan(false); });
+  // 스크린샷 붙여 넣기
+  document.addEventListener('paste', e => { const it = Array.from((e.clipboardData || {}).items || []).find(i => i.type.startsWith('image/')); if (!it) return; e.preventDefault(); const img = new Image(); img.onload = () => ocrRun(img, img.naturalWidth, img.naturalHeight, false); img.src = URL.createObjectURL(it.getAsFile()); });
   let drag = null;
   document.addEventListener('pointerdown', e => { const p = e.target.closest('#ocrprev'); if (!p) return; e.preventDefault(); const b = p.getBoundingClientRect(); drag = { b, x0: (e.clientX - b.left) / b.width, y0: (e.clientY - b.top) / b.height, el: p }; });
   document.addEventListener('pointermove', e => { if (!drag) return; const cl = v => Math.min(1, Math.max(0, v)); const x = cl((e.clientX - drag.b.left) / drag.b.width), y = cl((e.clientY - drag.b.top) / drag.b.height);
     drag.r = { x: Math.min(x, drag.x0), y: Math.min(y, drag.y0), w: Math.abs(x - drag.x0), h: Math.abs(y - drag.y0) }; let box = drag.el.querySelector('i'); if (!box) { box = document.createElement('i'); drag.el.appendChild(box); }
     box.style.cssText = 'left:' + drag.r.x * 100 + '%;top:' + drag.r.y * 100 + '%;width:' + drag.r.w * 100 + '%;height:' + drag.r.h * 100 + '%'; });
-  document.addEventListener('pointerup', () => { if (!drag) return; const r = drag.r; drag = null; if (r && r.w > 0.03 && r.h > 0.02) { OCR.region = r; store.set('dd.ocrRegion', r); render(true); } });
-  window.ddOcr = { recognizeCanvas, matchCurio };
+  document.addEventListener('pointerup', () => { if (!drag) return; const r = drag.r; drag = null; if (r && r.w > 0.03 && r.h > 0.02) { OCR.region = r; store.set('dd.ocrRegion', r); dock(); } });
+  window.ddOcr = { recognizeCanvas, classify, run: ocrRun };
+  dock();
 
   // ================= 라우터 =================
   function parseHash() {
