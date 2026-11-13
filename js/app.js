@@ -660,6 +660,7 @@
     else if (a === 'clearalias') { if (confirm('등록한 글자를 모두 지울까요?')) { aliases = {}; store.set('dd.ocrAlias', aliases); } }
     dock();
   });
+  document.addEventListener('change', e => { const t = e.target; if (t.dataset && t.dataset.qteach != null && t.value && HUD.info && HUD.info.quirks) { const q = HUD.info.quirks[+t.dataset.qteach]; if (q) { aliases[normT(q.t)] = t.value; store.set('dd.ocrAlias', aliases); hudBuild(); render(true); } } });
   document.addEventListener('change', e => { if (e.target.id !== 'oteach' || !e.target.value || OCR.pick == null) return; const k = normT(OCR.lines[OCR.pick]); if (k.length >= 2) { aliases[k] = e.target.value; store.set('dd.ocrAlias', aliases); } OCR.pick = null; OCR.result = classify(OCR.lines); applyResult(OCR.result, false); dock(); });
   document.addEventListener('keydown', e => { if (e.key === 'F8') { e.preventDefault(); ocrScan(false); } });
   // 크롬 확장(전역 단축키)이 보내는 신호
@@ -695,7 +696,7 @@
   function rolesOf(screen) {
     if (screen === 'map') return [['party', '일행 4칸 (한 줄 전체)'], ['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
     if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['party', '일행 4칸 (한 줄 전체)'], ['title', '화면 제목 읽는 곳'], ['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
-    if (screen === 'hero') return [['party', '일행 4칸 (한 줄 전체)'], ['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)'], ['trinkets', '장신구 칸 (한 줄 전체)'], ['camp', '야영 기술 7칸 (한 줄 전체)'], ['portrait', '영웅 얼굴 (목록에 쓸 그림)']];
+    if (screen === 'hero') return [['party', '일행 4칸 (한 줄 전체)'], ['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)'], ['trinkets', '장신구 칸 (한 줄 전체)'], ['camp', '야영 기술 7칸 (한 줄 전체)'], ['quirks', '기벽 목록 (전체)'], ['portrait', '영웅 얼굴 (목록에 쓸 그림)']];
     return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
@@ -761,6 +762,7 @@
     const I = { screen, dg: null, len: readLen(all), curio: R.curio, hero: null, det };
     if (screen === 'hero') I.hero = readHero(all);
     if (screen === 'hero') { const zr = (zones.hero || []).find(z => z.role === 'skills'); if (zr) I.picked = readSkillRow(src, zr); }
+    if (screen === 'hero') { try { I.quirks = await readQuirkLines(src, (zones.hero || []).find(z => z.role === 'quirks') || QUIRK_ZONE); } catch (e) { I.quirks = []; } }
     if (screen === 'provision' || screen === 'dungeon') I.dg = R.dg;
     for (const z of (screen && zones[screen]) || []) {   // 지정한 영역만 따로 읽기 (더 정확)
       if (!READ_ROLES.includes(z.role) || z.role === 'title') continue;
@@ -828,7 +830,7 @@
       if (!session.heroes.includes(h)) { session.heroes.push(h); saveSession(); }
       const g = HERO_GUIDE[h], b = g.builds[0];
       I.top = '<div class="row"><h2 class="hudh">' + heroT(h) + '</h2><span class="tag gold">' + esc(g.role) + '</span>' + g.pos.map(p => '<span class="tag">' + p + '열</span>').join('') + '</div><p>' + esc(g.summary) + '</p>';
-      I.bottom = heroRoster() + '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + thirdLine(h, b.trinkets) + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>추천 야영 기술</h3>' + campHTML(h) + '</div></div><div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div>';
+      I.bottom = heroRoster() + '<div class="two"><div class="card"><h3>' + esc(b.name) + '</h3><div class="two" style="margin-top:6px"><div>' + b.skills.map(k => skillLine(h, k)).join('') + '</div><div>' + b.trinkets.map(trinketLine).join('') + thirdLine(h, b.trinkets) + '</div></div><p class="small dim">' + esc(b.note) + '</p></div><div class="card"><h3>추천 야영 기술</h3>' + campHTML(h) + '</div></div>' + quirkCard(I) + '<div class="card"><h3>운용 팁</h3>' + ul(g.tips) + '<a href="#/hero/' + encodeURIComponent(h) + '">→ 전체 스킬 표</a></div>';
       const zr = zone('skills'); const all7 = HERO_DATA[h].skills; let advice = '';
       if (zr && h !== 'Abomination' && all7.length === 7) { const add = [], drop = [];
         all7.forEach((k, i) => { const rec = b.skills.includes(k.en), on = I.picked ? I.picked[i] : null; const cellz = { x: zr.x + zr.w * i / 7, y: zr.y, w: zr.w / 7, h: zr.h };
@@ -839,6 +841,7 @@
       I.advice = advice;
       { const tz = zone('trinkets') || TRINKET_ZONE; const tri = b.trinkets.concat(thirdTrinket(h, b.trinkets) || []).filter(n => TRK[n]).slice(0, 3);   // 장신구 칸마다 상자 + 그림 + 이름 (설명은 마우스를 올리면)
         tri.forEach((n, k) => I.calls.push({ kind: 'tslot', k, name: n, cell: { x: tz.x + tz.w * k / 3, y: tz.y, w: tz.w / 3, h: tz.h } })); }
+      (I.quirks || []).forEach((q, k) => { const m = matchQuirk(q.t); if (m && !m.none) I.calls.push({ kind: 'qbox', q: m, cell: q.b }); });
       { const cz = zone('camp') || CAMP_ZONE; const cp = typeof CAMP !== 'undefined' && CAMP[h];   // 추천 야영 기술 칸에 상자 + 이름 (칸 순서는 공용 3개 다음 전용 4개로 가정)
         if (cp && cp.skills.length === 7) cp.rec.forEach((n, k) => { const idx = cp.skills.findIndex(x => x.en === n); if (idx >= 0) I.calls.push({ kind: 'cslot', k, camp: cp.skills[idx], cell: { x: cz.x + cz.w * idx / 7, y: cz.y, w: cz.w / 7, h: cz.h } }); }); }
       I.say = heroKo(h) + '이옵니다, 주인님. ' + g.pos.join('·') + '열에 세워 두시지요. 이번에는 좀 오래 버텨 주면 좋으련만… 히히.' + (I.advice || '') + (session.heroes.length >= 4 ? ' 넷을 다 보셨으니 일행 점검을 아래에 적어 두었습니다.' : ' 일행을 한 명씩 보여 주시면 제가 짝을 맞춰 보지요.'); return;
@@ -885,7 +888,26 @@
   // 영웅 정보 화면의 장신구 칸 (영역 편집에 '장신구 칸'을 따로 두면 그것을 쓴다)
   const TRINKET_ZONE = { x: 0.31, y: 0.675, w: 0.14, h: 0.1 };
   // 영웅 정보 화면의 야영 기술 7칸 (영역 편집에 '야영 기술 7칸'을 따로 두면 그것을 쓴다)
+  // 영웅 정보 화면의 기벽 목록 (긍정·부정 두 단 전체). 영역 편집에 '기벽 목록'을 따로 두면 그것을 쓴다
+  const QUIRK_ZONE = { x: 0.185, y: 0.275, w: 0.275, h: 0.165 };
+  // 꼭 고정할 기벽 / 꼭 지울 기벽: 마을 탭의 목록에 다른 한글 번역 후보를 붙여 찾는다
+  const QUIRK_ALT = { 'Quick Reflexes': ['날쌘 반사신경', '빠른 반응'], 'On Guard': ['경계', '방심하지 않음', '경계 중'], 'Quickdraw': ['빠른 발도', '빨리 뽑기', '속사수'], 'Natural Swing': ['타고난 휘두르기', '천부적 스윙', '자연스러운 스윙'], 'Precise Striker': ['정밀한 타격가', '정확한 타격', '정밀 타격가'], 'Eagle Eye': ['독수리 눈', '독수리의 눈'], 'Slugger': ['거포', '강타'], 'Unerring': ['틀림없음', '빈틈없음', '정확무오'], 'Tough': ['강인함', '터프함', '억셈'], 'Hard Skinned': ['질긴 피부', '두꺼운 피부', '강한 피부'], 'Steady': ['흔들림 없음', '안정됨', '꾸준함'], 'Unyielding': ['굴하지 않음', '불굴의 의지'],
+    'Kleptomaniac': ['도벽광', '절도광', '도벽증'], 'Curious': ['호기심 많음', '호기심쟁이'], 'Compulsive': ['강박증', '충동적', '강박적'], 'Hylomania': ['물질 집착', '물건 집착', '물질광'], 'Dark Temptation': ['어두운 유혹', '암흑의 유혹'], 'Necromania': ['시체 집착', '사체 애호', '시체광'], 'The Yips': ['손 떨림', '입스 증후군'], 'Off Guard': ['무방비', '허를 찔림'], 'Nervous': ['긴장', '불안', '초조함'], 'Fragile': ['연약함', '깨지기 쉬움', '약골'], 'Weak Grip on Life': ['삶에 대한 약한 집착', '약한 삶의 의지', '희미한 생명줄'], 'Claustrophobia': ['폐쇄공포증'] };
+  const QUIRKS = typeof TOWN !== 'undefined' && TOWN.quirks ? TOWN.quirks.lock.map(q => Object.assign({ kind: 'lock' }, q)).concat(TOWN.quirks.remove.map(q => Object.assign({ kind: 'remove' }, q))) : [];
+  function matchQuirk(text) { const n = normT(text); if (n.length < 2) return null; const al = aliases[n]; if (al && al.startsWith('quirk:')) return al === 'quirk:-' ? { none: true } : (QUIRKS.find(q => q.en === al.slice(6)) || null);
+    return QUIRKS.find(q => [q.en, q.ko, overrides[q.en]].concat(QUIRK_ALT[q.en] || []).filter(Boolean).map(normT).some(w => n === w || (w.length >= 3 && n.includes(w)) || (w.length >= 4 && Math.abs(n.length - w.length) <= 1 && lev(n, w) <= 1))) || null; }
+  // 기벽 목록을 줄 단위로 읽는다. 한 줄에 긍정·부정 기벽이 나란히 있으면 낱말 사이가 넓은 곳에서 나눈다
+  async function readQuirkLines(src, z) {
+    const cv = cropCanvas(src, z); const w = await ensureWorker(); const { data } = await w.recognize(cv); const out = [];
+    (data.lines || []).forEach(l => { const ws = (l.words || []).filter(x => normT(x.text).length); if (!ws.length) return; const lh = l.bbox.y1 - l.bbox.y0; let seg = [ws[0]];
+      const flush = () => { const t = seg.map(x => x.text).join(' '); if (normT(t).length >= 2 && /[가-힣a-z]{2}/i.test(t)) { const x0 = seg[0].bbox.x0, x1 = seg[seg.length - 1].bbox.x1, y0 = Math.min.apply(null, seg.map(x => x.bbox.y0)), y1 = Math.max.apply(null, seg.map(x => x.bbox.y1)); out.push({ t, b: { x: z.x + z.w * x0 / cv.width, y: z.y + z.h * y0 / cv.height, w: z.w * (x1 - x0) / cv.width, h: z.h * (y1 - y0) / cv.height } }); } };
+      for (let i = 1; i < ws.length; i++) { if (ws[i].bbox.x0 - ws[i - 1].bbox.x1 > lh * 1.6) { flush(); seg = []; } seg.push(ws[i]); } flush(); });
+    return out.slice(0, 14);
+  }
   const CAMP_ZONE = { x: 0.4835, y: 0.438, w: 0.2915, h: 0.074 };
+  function quirkCard(I) { const qs = I.quirks || []; if (!qs.length) return '';
+    const opts = '<option value="">무슨 기벽인지 지정…</option><option value="quirk:-">고정·제거 대상 아님</option><optgroup label="꼭 고정할 기벽">' + QUIRKS.filter(q => q.kind === 'lock').map(q => '<option value="quirk:' + esc(q.en) + '">' + esc(q.ko + ' (' + q.en + ')') + '</option>').join('') + '</optgroup><optgroup label="꼭 지울 기벽">' + QUIRKS.filter(q => q.kind === 'remove').map(q => '<option value="quirk:' + esc(q.en) + '">' + esc(q.ko + ' (' + q.en + ')') + '</option>').join('') + '</optgroup>';
+    return '<div class="card"><h3>기벽</h3>' + qs.map((q, i) => { const m = matchQuirk(q.t); return '<div class="qrow"><span>' + esc(q.t) + '</span>' + (m && !m.none ? '<span class="tag ' + (m.kind === 'lock' ? 'good' : 'bad') + '">' + (m.kind === 'lock' ? '고정 추천' : '제거 추천') + ' · ' + esc(m.en) + '</span><span class="small dim">' + esc(m.why) + '</span>' : m && m.none ? '<span class="small dim">대상 아님</span>' : '<select class="field" data-qteach="' + i + '">' + opts + '</select>') + '</div>'; }).join('') + '<p class="small dim">게임의 한글 이름이 이 가이드와 다르면 자동으로 못 찾습니다. 한 번 지정해 두면 다음부터는 그 이름으로 찾습니다.</p></div>'; }
   function heroRoster() {   // 이번 원정에서 확인한 영웅: 앞의 4명은 일행으로 점검, 나머지는 옆에 후보로 둔다. 누르면 그 영웅을 찍어 둔 캡처가 나온다
     const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
     const party = hs.slice(0, 4), extra = hs.slice(4); const { A, slots } = checkHeroes(party, ctx.dg); const cur = HUD.info && HUD.info.hero;
@@ -924,13 +946,15 @@
   function tslotHTML() { const I = HUD.info; if (!I || !I.calls) return '';
     const camp = I.calls.filter(c => c.kind === 'cslot').sort((a, b) => a.cell.x - b.cell.x).map((c, n) => { const z = c.cell, k = c.camp;
       return '<div class="tslot cslot' + (n % 2 ? ' up' : '') + '" style="left:' + (z.x * 100 + z.w * 4).toFixed(2) + '%;top:' + (z.y * 100).toFixed(2) + '%;width:' + (z.w * 92).toFixed(2) + '%;height:' + (z.h * 100).toFixed(2) + '%"><span class="tname">' + esc(koOf(k.en, k.ko)) + '</span><span class="ttip"><b>' + esc(koOf(k.en, k.ko)) + ' <small>' + esc(k.en) + '</small></b><i>시간 ' + k.cost + ' · ' + esc(k.target) + '</i>' + esc(k.fx) + '</span></div>'; }).join('');
-    return camp + I.calls.filter(c => c.kind === 'tslot').map(c => { const t = TRK[c.name]; const z = c.cell;
+    const qb = I.calls.filter(c => c.kind === 'qbox').map(c => { const z = c.cell, q = c.q; const lock = q.kind === 'lock';
+      return '<div class="tslot qbox ' + q.kind + '" style="left:' + (z.x * 100 - 0.4).toFixed(2) + '%;top:' + (z.y * 100 - 0.5).toFixed(2) + '%;width:' + (z.w * 100 + 0.8).toFixed(2) + '%;height:' + (z.h * 100 + 1).toFixed(2) + '%"><span class="qtag">' + (lock ? '고정' : '제거') + '</span><span class="ttip"><b>' + esc(koOf(q.en, q.ko)) + ' <small>' + esc(q.en) + '</small></b><i>' + (lock ? '요양원에서 고정할 만한 기벽' : '요양원에서 먼저 지울 기벽') + '</i>' + esc(q.why) + '</span></div>'; }).join('');
+    return qb + camp + I.calls.filter(c => c.kind === 'tslot').map(c => { const t = TRK[c.name]; const z = c.cell;
       return '<div class="tslot' + (c.k === 1 ? ' up' : '') + '" style="left:' + (z.x * 100 + z.w * 4).toFixed(2) + '%;top:' + (z.y * 100).toFixed(2) + '%;width:' + (z.w * 92).toFixed(2) + '%;height:' + (z.h * 100).toFixed(2) + '%">' + pic(t.img, 0, '') + '<span class="tname">' + esc(t.en) + '</span><span class="ttip"><b>' + esc(t.en) + '</b>' + (c.k === 2 ? '<i>3번째 칸 (모드)</i>' : '') + t.fx.map(esc).join('<br>') + '</span></div>'; }).join(''); }
   // WebGL을 쓸 수 없을 때의 대체 표시 (캡처 그림 + HTML 표시)
   function domScene(W, H) {
     const host = $('#hudstage'); host.innerHTML = ''; if (OCR.last) { const c = document.createElement('canvas'); c.width = W; c.height = H; c.getContext('2d').drawImage(OCR.last, 0, 0, W, H); host.appendChild(c); }
     const I = HUD.info; if (!I) return;
-    $('#hudcalls').innerHTML = tslotHTML() + I.calls.filter(c => c.kind !== 'tslot' && c.kind !== 'cslot').map(c => c.kind === 'badge' ? '<div class="call badge center ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%">' + esc(c.title) + '</div>' : c.kind === 'tag' ? '<div class="call tagc' + (c.on ? ' on' : '') + '" data-hdg="' + c.dg + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b> ' + esc(c.sub) + '</div>' : '<div class="call card ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b><br>' + c.lines.map(esc).join('<br>') + '</div>').join('');
+    $('#hudcalls').innerHTML = tslotHTML() + I.calls.filter(c => c.kind !== 'tslot' && c.kind !== 'cslot' && c.kind !== 'qbox').map(c => c.kind === 'badge' ? '<div class="call badge center ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%">' + esc(c.title) + '</div>' : c.kind === 'tag' ? '<div class="call tagc' + (c.on ? ' on' : '') + '" data-hdg="' + c.dg + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b> ' + esc(c.sub) + '</div>' : '<div class="call card ' + c.tone + '" style="left:' + c.x * 100 + '%;top:' + c.y * 100 + '%"><b>' + esc(c.title) + '</b><br>' + c.lines.map(esc).join('<br>') + '</div>').join('');
   }
   // 캔버스 장면 (PixiJS, WebGL): 캡처 + 강조 칸 + 떠 있는 표시 + 불티. 마우스를 따라 층마다 다르게 움직여 깊이감을 준다.
   function pixiScene(W, H) {
@@ -949,7 +973,7 @@
     const txt = (s, size, fill, bold, wrap) => new P.Text(s, { fontFamily: font, fontSize: size, fill, fontWeight: bold ? '800' : '500', wordWrap: !!wrap, wordWrapWidth: wrap || 0, breakWords: true, lineHeight: Math.round(size * 1.4) });
     const items = [], pulses = []; let bi = 0;
     (I ? I.calls : []).forEach((c, i) => {
-      if (c.kind === 'tslot' || c.kind === 'cslot') return;
+      if (c.kind === 'tslot' || c.kind === 'cslot' || c.kind === 'qbox') return;
       const g = new P.Container(); const col = TONEC[c.tone] || 0xd6a64a; let w, h; const bg = new P.Graphics(); g.addChild(bg);
       if (c.kind === 'badge') {
         const t = txt(c.title, F * (c.small ? 0.95 : 1.55), c.tone === 'off' ? 0xb8b0a3 : 0xeaf6e4, true); const px = F * 0.55, py = F * 0.12; w = t.width + px * 2; h = t.height + py * 2; t.position.set(px, py); g.addChild(t);
