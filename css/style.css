@@ -303,3 +303,5 @@ main:has(.runwrap){max-width:1560px}
 @keyframes bob{50%{transform:translateY(-4px) rotate(-2deg)}}
 .bubble{position:relative;background:#efe6cf;color:#1b1611;border:2px solid #8a6a26;border-radius:12px;padding:9px 13px;font-size:15px;max-width:760px;margin-bottom:14px}
 .bubble::before{content:"";position:absolute;left:-10px;bottom:12px;border:8px solid transparent;border-right-color:#8a6a26;border-left:0}
+.mimg{cursor:pointer}
+.mimg img{display:block;width:100%;border-radius:8px}

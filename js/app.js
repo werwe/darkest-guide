@@ -144,7 +144,6 @@
     const tiles = [
       ['#/plan', '원정 준비', '던전과 길이를 고르면 보급품 수량, 추천 파티, 주의할 적, 기물 요약이 한 화면에.'],
       ['#/run', '원정 진행 (보조 모니터용)', '던전을 도는 동안 띄워 두는 화면. 기물 그림을 누르면 지금 가방 기준으로 무엇을 할지 알려 줍니다.'],
-      ['#/hud', '오버레이 (전체 화면)', '캡처한 게임 화면을 입체 판으로 띄우고 필요한 정보만 그 자리에 얹습니다. 세로 모니터에서는 위아래 여백에 요약과 추천 파티가 채워집니다.'],
       ['#/builder', '파티 편성기', '영웅을 직접 넣어 보고 힐 · 기절 · 후열 타격 · 던전 상성을 점검합니다.'],
       ['#/curios', '기물 조회', '던전에서 만난 기물에 무엇을 써야 하는지 확률과 함께 즉시 확인.'],
       ['#/parties', '추천 파티', '상황별 추천 파티와 자리별 대체 영웅, 스킬, 장신구.'],
@@ -638,7 +637,7 @@
         o += '<select class="field" id="oteach" style="width:100%"><option value="">"' + esc(OCR.lines[OCR.pick].slice(0, 20)) + '" 은(는) 무엇인가요?</option><optgroup label="화면 종류"><option value="screen:map">원정 선택 화면</option><option value="screen:provision">보급품 구매 화면</option></optgroup><optgroup label="던전">' + DUNGEONS.map(d => '<option value="dg:' + d.id + '">' + esc(d.ko + ' (' + d.en + ')') + '</option>').join('') + '</optgroup><optgroup label="원정 길이"><option value="len:0">짧은 원정</option><option value="len:1">중간 원정</option><option value="len:2">긴 원정</option></optgroup><optgroup label="기물">' + CURIOS.filter(c => !seen[c.en] && (seen[c.en] = 1)).map(c => '<option value="curio:' + esc(c.en) + '">' + esc(c.ko + ' (' + c.en + ')') + '</option>').join('') + '</optgroup><optgroup label="보스">' + BOSSES.map(b => '<option value="boss:' + b.id + '">' + esc(b.ko + ' (' + b.en + ')') + '</option>').join('') + '</optgroup></select>'; }
     }
     const na = Object.keys(aliases).length;
-    o += '<details class="small dim" style="margin-top:6px"><summary>사용법 · 게임 중 단축키</summary><ul><li>게임 창을 연결한 뒤 인식하면, 화면에 따라 추천 파티 · 보급품 체크리스트 · 기물 안내로 이동합니다.</li><li><b>게임 중 단축키</b>: 저장소의 <code>extension</code> 폴더를 크롬 확장으로 설치하면 전역 단축키(기본 Ctrl+Shift+1)로 인식합니다. 설치 방법은 README 참고. 설치 없이 쓰려면 "미디어 키"를 켜고 키보드의 다음 곡 키를 눌러 보세요.</li><li>연결 없이도 스크린샷을 찍어 이 페이지에 <b>Ctrl+V</b>로 붙여 넣으면 인식합니다.</li><li>화면은 이 컴퓨터 안에서만 처리됩니다.</li></ul>' + (na ? '등록한 글자 ' + na + '개 · <a href="#" data-ocr="clearalias">모두 지우기</a>' : '') + '</details>';
+    o += '<details class="small dim" style="margin-top:6px"><summary>사용법 · 게임 중 단축키</summary><ul><li>게임 창을 연결한 뒤 인식하면, 화면에 따라 추천 파티 · 보급품 체크리스트 · 기물 안내로 이동합니다.</li><li><b>게임 중 단축키</b>: 저장소의 <code>extension</code> 폴더를 크롬 확장으로 설치하면 전역 단축키(기본 Ctrl+Shift+1)로 캡처해 <b>전체 화면 오버레이</b>를 띄웁니다. 오버레이는 이 단축키로만 열립니다. 설치 방법은 README 참고. 설치 없이 쓰려면 "미디어 키"를 켜고 키보드의 다음 곡 키를 눌러 보세요.</li><li>연결 없이도 스크린샷을 찍어 이 페이지에 <b>Ctrl+V</b>로 붙여 넣으면 인식합니다.</li><li>화면은 이 컴퓨터 안에서만 처리됩니다.</li></ul>' + (na ? '등록한 글자 ' + na + '개 · <a href="#" data-ocr="clearalias">모두 지우기</a>' : '') + '</details>';
     el.innerHTML = o;
   }
   document.addEventListener('click', e => {
@@ -659,7 +658,7 @@
   document.addEventListener('change', e => { if (e.target.id !== 'oteach' || !e.target.value || OCR.pick == null) return; const k = normT(OCR.lines[OCR.pick]); if (k.length >= 2) { aliases[k] = e.target.value; store.set('dd.ocrAlias', aliases); } OCR.pick = null; OCR.result = classify(OCR.lines); applyResult(OCR.result, false); dock(); });
   document.addEventListener('keydown', e => { if (e.key === 'F8') { e.preventDefault(); ocrScan(false); } });
   // 크롬 확장(전역 단축키)이 보내는 신호
-  window.addEventListener('message', e => { if (e.source === window && e.data && e.data.ddCapture === 1) ocrScan(false); });
+  window.addEventListener('message', e => { if (e.source !== window || !e.data || e.data.ddCapture !== 1) return; if (parseHash().view !== 'hud') { history.pushState(null, '', '#/hud'); render(false); } ocrScan(false); });
   // 스크린샷 붙여 넣기
   document.addEventListener('paste', e => { const it = Array.from((e.clipboardData || {}).items || []).find(i => i.type.startsWith('image/')); if (!it) return; e.preventDefault(); const img = new Image(); img.onload = () => ocrRun(img, img.naturalWidth, img.naturalHeight, false); img.src = URL.createObjectURL(it.getAsFile()); });
   let drag = null;
@@ -795,7 +794,7 @@
     if (HUD.edit) o += '<div class="hudbar"><b>' + (SCREENS.find(x => x[0] === es) || [0, ''])[1] + ' 화면 영역</b><select class="field" id="hrole">' + rolesOf(es).map(([v, l]) => '<option value="' + v + '">' + esc(l) + '</option>').join('') + '</select><button class="chip sm on" data-hud="addzone">추가</button><button class="chip sm" data-hud="delzone">선택 삭제</button><button class="chip sm" data-hud="reset">기본값</button><button class="chip sm" data-hud="export">내보내기</button><button class="chip sm" data-hud="import">가져오기</button><span class="small dim">끌어서 옮기고 모서리로 크기 조절 · 점선 = 글자 읽는 곳</span></div>';
     o += '<div class="hudpanel top">' + ((I && I.top) || (OCR.last ? '' : '<p class="dim">캡처가 없습니다. 오른쪽 아래 <b>화면 인식</b>에서 게임 창을 연결해 인식하거나, 스크린샷을 <b>Ctrl+V</b>로 붙여 넣으세요.</p>')) + '</div>';
     o += '<div class="hudscene" id="hudscene"><div class="hud3d' + (HUD.fresh ? ' enter' : '') + '" id="hud3d"><div id="hudstage"></div><div id="hudcalls">' + (!HUD.edit && I ? I.calls.map((c, i) => '<div class="call ' + c.cls + '" ' + (c.attr || '') + ' style="left:' + (c.x * 100).toFixed(2) + '%;top:' + (c.y * 100).toFixed(2) + '%;animation-delay:' + (i * 40) + 'ms">' + c.html + '</div>').join('') : '') + '</div></div></div>';
-    o += '<div class="hudpanel bottom"><div class="mascot"><div class="mimg">' + MASCOT_SVG + '</div><div class="bubble" id="hudsay">' + esc((I && I.say) || '화면을 보여 주시면 필요한 것만 짚어 드리겠습니다.') + '</div></div>' + ((I && I.bottom) || '') + '</div></div>';
+    o += '<div class="hudpanel bottom"><div class="mascot"><div class="mimg" data-hud="mascot" title="눌러서 내 그림으로 바꾸기 (이 브라우저에만 저장)">' + (store.get('dd.mascot', null) ? '<img src="' + store.get('dd.mascot', '') + '" alt="">' : MASCOT_SVG) + '</div><div class="bubble" id="hudsay">' + esc((I && I.say) || '화면을 보여 주시면 필요한 것만 짚어 드리겠습니다.') + '</div></div>' + ((I && I.bottom) || '') + '</div></div>';
     return o;
   };
   async function hudMount() {
@@ -840,6 +839,8 @@
     else if (d.hud === 'rescan') { hudRun(); return; }
     else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
     else if (d.hud === 'edit') { HUD.edit = !HUD.edit; HUD.sel = null; }
+    else if (d.hud === 'mascot') { if (store.get('dd.mascot', null) && confirm('기본 캐릭터로 되돌릴까요? (취소를 누르면 다른 그림을 고릅니다)')) { store.set('dd.mascot', null); render(true); return; }
+      const inp = document.createElement('input'); inp.type = 'file'; inp.accept = 'image/*'; inp.onchange = () => { const f = inp.files[0]; if (!f) return; const img = new Image(); img.onload = () => { const sc = Math.min(1, 240 / Math.max(img.naturalWidth, img.naturalHeight)); const cv = document.createElement('canvas'); cv.width = Math.round(img.naturalWidth * sc); cv.height = Math.round(img.naturalHeight * sc); cv.getContext('2d').drawImage(img, 0, 0, cv.width, cv.height); store.set('dd.mascot', cv.toDataURL('image/png')); render(true); }; img.src = URL.createObjectURL(f); }; inp.click(); return; }
     else if (d.hud === 'addzone') { const role = $('#hrole').value; zones[scr] = zones[scr] || []; zones[scr].push({ role, x: 0.42, y: 0.42, w: role.startsWith('item:') ? 0.045 : 0.16, h: role.startsWith('item:') ? 0.13 : 0.05 }); HUD.sel = zones[scr].length - 1; saveZones(); }
     else if (d.hud === 'delzone') { if (HUD.sel != null && zones[scr]) { zones[scr].splice(HUD.sel, 1); HUD.sel = null; saveZones(); } }
     else if (d.hud === 'reset') { if (!confirm('이 화면의 영역을 기본값으로 되돌릴까요?')) return; zones[scr] = JSON.parse(JSON.stringify(DEFAULT_ZONES[scr] || [])); saveZones(); }
