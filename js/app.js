@@ -143,6 +143,8 @@
   V.home = function () {
     const tiles = [
       ['#/plan', '원정 준비', '던전과 길이를 고르면 보급품 수량, 추천 파티, 주의할 적, 기물 요약이 한 화면에.'],
+      ['#/run', '원정 진행 (보조 모니터용)', '던전을 도는 동안 띄워 두는 화면. 기물 그림을 누르면 지금 가방 기준으로 무엇을 할지 알려 줍니다.'],
+      ['#/builder', '파티 편성기', '영웅을 직접 넣어 보고 힐 · 기절 · 후열 타격 · 던전 상성을 점검합니다.'],
       ['#/curios', '기물 조회', '던전에서 만난 기물에 무엇을 써야 하는지 확률과 함께 즉시 확인.'],
       ['#/parties', '추천 파티', '상황별 추천 파티와 자리별 대체 영웅, 스킬, 장신구.'],
       ['#/bosses', '보스 공략', '기믹, 공략 순서, 준비물, 추천/대체 파티.'],
@@ -337,6 +339,162 @@
     return o;
   };
 
+  // ================= 원정 진행 화면 =================
+  const RUN_ITEMS = ['Food', 'Torch', 'Shovel', 'Skeleton Key', 'Holy Water', 'Medicinal Herbs', 'Bandage', 'Antivenom', 'Laudanum'];
+  let run = store.get('dd.run', { dg: 'ruins', inv: {}, sel: null, log: [] });
+  const saveRun = () => store.set('dd.run', run);
+  function runCurios() { return CURIOS.filter(c => c.dg === run.dg || c.dg === 'all'); }
+  V.run = function (args) {
+    if (args[0] && DG[args[0]] && args[0] !== run.dg) { run.dg = args[0]; run.sel = null; saveRun(); }
+    const d = DG[run.dg] || DG.ruins; const list = runCurios();
+    let o = '<h1>원정 진행</h1><p class="lead">게임 옆 모니터에 띄워 두는 화면입니다. 기물을 만나면 그림을 누르세요. 가진 보급품 수량을 맞춰 두면 지금 가방 기준으로 무엇을 할지 알려 줍니다.</p>';
+    o += '<div class="chips">' + DUNGEONS.map(x => '<button class="chip' + (x.id === run.dg ? ' on' : '') + '" data-rdg="' + x.id + '">' + esc(koOf(x.en, x.ko)) + '</button>').join('') + '</div>';
+    o += '<div class="runwrap"><div class="runcol">';
+    // 가방
+    o += '<div class="card"><div class="row"><h3>가방</h3><span class="small dim">권장 수량으로 채우기:</span>' + (d.provLabels || ['짧은', '중간', '긴']).map((l, i) => '<button class="chip sm" data-rfill="' + i + '">' + esc(l.replace(' 원정', '')) + '</button>').join('') + '<button class="chip sm" data-rfill="x">비우기</button></div><div class="inv">' +
+      RUN_ITEMS.map(k => { const p = PROV[k], n = run.inv[k] || 0; return '<div class="invrow' + (n ? '' : ' zero') + '">' + pic(p.img, 0, 'ico') + '<span class="invname">' + T(p.en, p.ko) + '</span><button data-rinv="' + esc(k) + '" data-d="-1" aria-label="줄이기">−</button><b>' + n + '</b><button data-rinv="' + esc(k) + '" data-d="1" aria-label="늘리기">+</button></div>'; }).join('') +
+      '</div><div class="row" style="margin-top:8px"><button class="chip sm" data-rquick="hunger">배고픔 (음식 −4)</button><button class="chip sm" data-rquick="torch">횃불 사용 (−1)</button><button class="chip sm" data-rquick="dig">장애물 (삽 −1)</button></div>' +
+      ((run.inv.Food || 0) < 4 ? '<div class="note warn">음식이 4개 미만입니다. 다음 배고픔 이벤트에서 굶게 됩니다.</div>' : '') + '</div>';
+    o += '<div class="card"><h3>이 던전에서 통하는 것</h3><div class="chips">' + d.dmg.good.map(x => '<span class="tag good">' + esc(x) + '</span>').join('') + d.dmg.bad.map(x => '<span class="tag bad">✕ ' + esc(x) + '</span>').join('') + '</div><h3 style="margin-top:8px">먼저 잡을 적</h3>' + ul(d.threats) + '</div>';
+    const bs = d.bosses.map(b => BOSSES.find(x => x.id === b)).filter(Boolean);
+    if (bs.length) o += '<div class="card"><h3>보스</h3><div class="chips">' + bs.map(b => '<a class="chip" href="#/boss/' + b.id + '">' + esc(koOf(b.en, b.ko)) + '</a>').join('') + '</div></div>';
+    o += '</div><div class="runcol">';
+    // 기물 그림판
+    const groups = [['corridor', '복도'], ['curio_room', '방'], ['treasure_room', '보물 방'], ['secret_room', '비밀 방'], [null, '원정 전용 · 기타']];
+    o += '<div class="card"><h3>기물 — 그림을 누르세요</h3>';
+    groups.forEach(([loc, label]) => { const l = list.filter(c => (c.loc || null) === loc); if (!l.length) return;
+      o += '<div class="small dim" style="margin-top:8px">' + label + '</div><div class="cgrid">' + l.map(c => { const v = verdict(c); const en = v.item && ITEM_EN[v.item]; const have = en && PROV[en] ? (run.inv[en] || 0) : null;
+        return '<button class="ctile' + (run.sel === c.en ? ' on' : '') + ' v-' + v.cls + '" data-rsel="' + esc(c.en) + '"><span class="cimg">' + pic(c.img, 160, '') + '</span><span class="cname">' + esc(koOf(c.en, c.ko)) + '</span>' + (v.item ? '<span class="cneed' + (have === 0 ? ' none' : '') + '">' + itemImg(v.item, 'ico sm') + '</span>' : '') + '</button>'; }).join('') + '</div>'; });
+    o += '<div class="small dim" style="margin-top:8px">테두리 색: <span class="tag good">아이템 사용</span> <span class="tag gold">맨손 OK</span> <span class="tag" style="color:#cdb9e6">도박</span> <span class="tag bad">건드리지 말 것</span> · 아이콘이 흐리면 가방에 그 아이템이 없음</div></div>';
+    o += '</div><div class="runcol">';
+    // 선택한 기물
+    const c = list.find(x => x.en === run.sel);
+    if (!c) o += '<div class="card dim">기물을 선택하면 여기에 권장 행동과 확률이 나옵니다.</div>';
+    else {
+      const v = verdict(c); let banner = '';
+      if (v.item) {
+        const opts = [v.item].concat(v.also || []).filter(i => PROV[ITEM_EN[i]]); const haveOpt = opts.find(i => (run.inv[ITEM_EN[i]] || 0) > 0);
+        if (!opts.length) banner = '<div class="note">퀘스트 아이템으로 상호작용하는 기물입니다.</div>';
+        else if (haveOpt) banner = '<div class="note good"><b>' + itemT(haveOpt) + '</b> 보유 ' + run.inv[ITEM_EN[haveOpt]] + '개 → 사용하세요. <button class="chip sm" data-ruse="' + esc(ITEM_EN[haveOpt]) + '">사용함 (−1)</button></div>';
+        else { const hand = c.inter.find(i => i.item === 'hand'); const hs = hand ? scoreOf(hand) : null;
+          banner = '<div class="note warn"><b>' + itemT(v.item) + '</b>이(가) 가방에 없습니다. ' + (!hs ? '아이템 없이는 열 수 없습니다.' : hs.b === 0 ? '맨손으로 해도 손해는 없지만 보상이 줄어듭니다.' : hs.b >= 40 ? '맨손은 나쁜 결과 ' + Math.round(hs.b) + '% — 지나치는 편이 낫습니다.' : '맨손은 좋음 ' + Math.round(hs.g) + '% / 나쁨 ' + Math.round(hs.b) + '% 도박입니다.') + '</div>'; }
+      }
+      o += banner + curioCard(c);
+    }
+    o += '<div class="card small dim">골동품상이 있으면 기물은 골동품상으로 조사하세요(추가 전리품). 함정 해제 확률이 높은 영웅으로 함정을 밟고, 강제 상호작용 기벽이 있는 영웅은 복도 기물을 멋대로 건드릴 수 있습니다.</div>';
+    return o + '</div></div>';
+  };
+
+  // ================= 파티 편성기 =================
+  let bld = store.get('dd.builder', { slots: [null, null, null, null], active: 0, dg: '' });
+  const saveBld = () => store.set('dd.builder', bld);
+  const usableAt = (s, pos) => s.from.includes(String(pos));
+  function defaultSkills(hero, pos) {
+    const all = HERO_DATA[hero].skills; const idx = [];
+    if (hero === 'Abomination') return all.map((s, i) => i);
+    const pref = (HERO_GUIDE[hero].builds[0] || { skills: [] }).skills;
+    pref.forEach(n => { const i = all.findIndex(s => s.en === n); if (i >= 0 && usableAt(all[i], pos) && idx.length < 4) idx.push(i); });
+    all.forEach((s, i) => { if (idx.length < 4 && !idx.includes(i) && usableAt(s, pos)) idx.push(i); });
+    return idx;
+  }
+  function setSlot(i, hero) { bld.slots[i] = hero ? { hero, skills: defaultSkills(hero, 4 - i) } : null; }
+  function analyze() {
+    const A = { heal: [], stun: [], stress: [], bleed: [], blight: [], mark: [], markPay: [], move: [], cover: [0, 0, 0, 0], dead: [], notes: [], warn: [], good: [] };
+    const filled = bld.slots.map((s, i) => s && { s, pos: 4 - i, h: HERO_DATA[s.hero], g: HERO_GUIDE[s.hero] }).filter(Boolean);
+    filled.forEach(({ s, pos, h, g }) => {
+      const nm = heroKo(s.hero);
+      s.skills.forEach(i => { const k = h.skills[i]; if (!k) return;
+        if (!usableAt(k, pos)) { A.dead.push(nm + ' — ' + koOf(k.en, k.ko)); return; }
+        const fx = k.fx || '';
+        if (k.heal && k.to !== 'self') A.heal.push(nm + ' ' + k.en);
+        if (/기절 \(/.test(fx)) A.stun.push(nm + ' ' + k.en);
+        if (k.ally && /스트레스 -\d|-\d+ 스트레스/.test(fx)) A.stress.push(nm + ' ' + k.en);
+        if (!k.ally && /출혈 \(/.test(fx)) A.bleed.push(nm);
+        if (!k.ally && /중독 \(/.test(fx)) A.blight.push(nm);
+        if (/대상에 표식/.test(fx)) A.mark.push(nm);
+        if (/표식 대상 상대/.test(fx)) A.markPay.push(nm);
+        if (/전진|후퇴/.test(k.self || '')) A.move.push(nm + ' ' + k.en);
+        if (!k.ally && k.to !== 'self' && k.dmg && k.dmg !== '-100%') [1, 2, 3, 4].forEach(r => { if (k.to.includes(String(r))) A.cover[r - 1]++; });
+      });
+      if (!g.pos.includes(pos)) A.warn.push(nm + ': ' + pos + '열은 권장 자리가 아닙니다 (권장 ' + g.pos.join('·') + '열).');
+    });
+    const n = filled.length; if (!n) return A;
+    const uniq = a => Array.from(new Set(a));
+    const names = filled.map(f => f.s.hero);
+    names.forEach((h, i) => { if (names.indexOf(h) !== i && h === 'Flagellant') A.warn.push('고행자는 파티에 한 명만 넣을 수 있습니다.'); });
+    if (n === 4) {
+      if (!A.heal.length) A.warn.push('아군을 치유하는 스킬이 없습니다. 짧은 원정이 아니면 위험합니다.'); else if (A.heal.length === 1 && /Wyrd|Battle Heal|Bandage|Fortifying/.test(A.heal[0])) A.notes.push('힐이 불안정하거나 약한 스킬 하나뿐입니다. 음식과 야영 힐을 넉넉히.'); else A.good.push('치유: ' + uniq(A.heal).join(', '));
+      if (!A.stun.length) A.notes.push('기절 스킬이 없습니다. 일반 전투에서 사고가 늘 수 있습니다.'); else A.good.push('기절: ' + uniq(A.stun).join(', '));
+      if (!A.stress.length) A.notes.push('전투 중 스트레스 치유가 없습니다. 중간 이상 길이에서는 야영 스킬로 보완해야 합니다.'); else A.good.push('스트레스 치유: ' + uniq(A.stress).join(', '));
+      if (A.cover[2] + A.cover[3] < 3) A.warn.push('적 3·4열을 때릴 수 있는 스킬이 부족합니다 (3열 ' + A.cover[2] + '개, 4열 ' + A.cover[3] + '개). 후열의 스트레스 딜러와 후열 보스에 취약합니다.');
+      if (A.cover[0] + A.cover[1] < 3) A.warn.push('적 1·2열을 때릴 스킬이 부족합니다.');
+      if (A.mark.length && !A.markPay.length) A.notes.push('표식을 걸지만 표식 추가 피해를 받는 스킬이 없습니다.');
+      if (!A.mark.length && A.markPay.length) A.notes.push('표식 추가 피해 스킬이 있는데 표식을 거는 스킬이 없습니다.');
+      if (A.mark.length && uniq(A.markPay).length >= 2) A.good.push('표식 시너지: ' + uniq(A.markPay).join(', '));
+      if (uniq(A.move).length >= 2) A.notes.push('위치를 바꾸는 스킬이 여러 개입니다 (' + uniq(A.move).join(', ') + '). 옆자리 영웅이 밀려도 스킬을 쓸 수 있는지 확인하세요.');
+    }
+    if (A.dead.length) A.warn.push('지금 자리에서 못 쓰는 스킬: ' + A.dead.join(', '));
+    const d = DG[bld.dg];
+    if (d) {
+      const bleedBad = ['ruins', 'cove'].includes(d.id), blightBad = ['weald', 'warrens', 'courtyard'].includes(d.id);
+      if (bleedBad && uniq(A.bleed).length) A.warn.push(koOf(d.en, d.ko) + '에서는 출혈이 잘 안 통합니다: ' + uniq(A.bleed).join(', ') + '의 출혈 스킬을 다른 스킬로 바꾸세요.');
+      if (blightBad && uniq(A.blight).length) A.warn.push(koOf(d.en, d.ko) + '에서는 중독이 잘 안 통합니다: ' + uniq(A.blight).join(', ') + '.');
+      if (!bleedBad && d.id !== 'farmstead' && d.id !== 'darkest' && n === 4 && !A.bleed.length && blightBad) A.notes.push('이 던전은 출혈이 약점인데 출혈 스킬이 없습니다.');
+      if (bleedBad && n === 4 && !A.blight.length) A.notes.push('이 던전은 중독이 약점인데 중독 스킬이 없습니다.');
+      names.forEach(h => { if (d.heroes.good.includes(h)) A.good.push(heroKo(h) + ': 이 던전 추천 영웅'); if (d.heroes.bad.includes(h)) A.notes.push(heroKo(h) + ': 이 던전 비추천 — ' + d.badWhy); });
+    }
+    ['warn', 'notes', 'good'].forEach(k => { A[k] = uniq(A[k]); });
+    A.order = filled.slice().sort((a, b) => parseFloat(b.h.spd) - parseFloat(a.h.spd)).map(f => heroKo(f.s.hero) + ' ' + f.h.spd);
+    return A;
+  }
+  V.builder = function () {
+    const A = analyze(); const act = bld.active;
+    let o = '<h1>파티 편성기</h1><p class="lead">자리를 누르고 영웅을 고르세요. 그 자리에서 쓸 수 있는 스킬만 켜지고, 힐·기절·후열 타격·스트레스 치유가 충분한지 바로 점검합니다. 던전을 고르면 상성도 봅니다.</p>';
+    o += '<div class="row"><span class="small dim">불러오기:</span>' + PARTIES.map(p => '<button class="chip sm" data-bpreset="' + p.id + '">' + esc(p.name) + '</button>').join('') + '<button class="chip sm" data-bclear="1">비우기</button></div>';
+    o += '<div class="row" style="margin-top:6px"><span class="small dim">갈 던전:</span><button class="chip sm' + (!bld.dg ? ' on' : '') + '" data-bdg="">선택 안 함</button>' + DUNGEONS.map(d => '<button class="chip sm' + (bld.dg === d.id ? ' on' : '') + '" data-bdg="' + d.id + '">' + esc(koOf(d.en, d.ko)) + '</button>').join('') + '</div>';
+    o += '<div class="lineup">' + bld.slots.map((s, i) => { const pos = 4 - i;
+      let c = '<div class="slot bslot' + (i === act ? ' active' : '') + '" data-bslot="' + i + '"><div class="slot-top">';
+      if (!s) return c + '<div class="port"></div><div><div class="pos">' + pos + '열</div><span class="dim">비어 있음 — 눌러서 선택</span></div></div></div>';
+      const h = HERO_DATA[s.hero]; const abom = s.hero === 'Abomination';
+      c += '<div class="port">' + pic(h.img, 120, '') + '</div><div><div class="pos">' + pos + '열' + (pos === 1 ? ' · 맨 앞' : pos === 4 ? ' · 맨 뒤' : '') + '</div><a class="hn" href="#/hero/' + encodeURIComponent(s.hero) + '">' + heroT(s.hero) + '</a></div><button class="xbtn" data-bremove="' + i + '" title="빼기">✕</button></div>';
+      c += '<h5>스킬 ' + (abom ? '(전부 사용)' : '(' + s.skills.length + '/4)') + '</h5>' + h.skills.map((k, ki) => { const ok = usableAt(k, pos), on = s.skills.includes(ki);
+        return '<button class="bsk' + (on ? ' on' : '') + (ok ? '' : ' no') + '" data-bskill="' + i + ':' + ki + '" title="' + esc([k.fx, k.self && ('자신: ' + k.self), ok ? '' : '이 자리에서 사용 불가 (' + k.from.split('').join('·') + '열 전용)'].filter(Boolean).join(' / ')) + '">' + pic(k.img, 0, '') + '<span>' + esc(koOf(k.en, k.ko)) + '</span></button>'; }).join('');
+      c += '<div class="row" style="margin-top:6px"><button class="chip sm" data-bmove="' + i + ':-1"' + (i === 0 ? ' disabled' : '') + '>← 뒤로</button><button class="chip sm" data-bmove="' + i + ':1"' + (i === 3 ? ' disabled' : '') + '>앞으로 →</button></div>';
+      return c + '</div>'; }).join('') + '</div><div class="front-back"><span>← 후열 (4열)</span><span>전열 (1열) · 적 방향 →</span></div>';
+    o += '<div class="two" style="margin-top:12px"><div class="card"><h3>' + (4 - act) + '열에 넣을 영웅</h3><div class="hpick">' + Object.keys(HERO_GUIDE).map(h => { const g = HERO_GUIDE[h]; const fit = g.pos.includes(4 - act); const used = bld.slots.some(s => s && s.hero === h);
+      return '<button class="hp' + (fit ? ' fit' : '') + (used ? ' used' : '') + '" data-bhero="' + esc(h) + '" title="' + esc(g.role) + '"><span class="port">' + pic(HERO_DATA[h].img, 120, '') + '</span><span>' + esc(heroKo(h)) + '</span></button>'; }).join('') + '</div><div class="small dim">금색 테두리 = 이 자리가 권장 위치인 영웅</div></div>';
+    o += '<div class="card"><h3>점검 결과</h3>';
+    const n = bld.slots.filter(Boolean).length;
+    if (!n) o += '<p class="dim">영웅을 넣으면 점검 결과가 나옵니다.</p>';
+    else {
+      o += A.warn.map(x => '<div class="chk bad">✕ ' + esc(x) + '</div>').join('') + A.notes.map(x => '<div class="chk mid">△ ' + esc(x) + '</div>').join('') + A.good.map(x => '<div class="chk ok">✓ ' + esc(x) + '</div>').join('');
+      if (n < 4) o += '<div class="chk mid">△ 네 자리를 모두 채우면 전체 점검을 합니다.</div>';
+      o += '<h3 style="margin-top:10px">적 열별 공격 스킬 수</h3><div class="cover">' + A.cover.map((v, i) => '<div class="' + (v === 0 ? 'c0' : v < 2 ? 'c1' : 'c2') + '"><b>' + v + '</b><span>적 ' + (i + 1) + '열</span></div>').join('') + '</div>';
+      if (A.order) o += '<div class="small dim" style="margin-top:8px">기본 속도 순서: ' + A.order.map(esc).join(' → ') + '</div>';
+    }
+    return o + '</div></div>';
+  };
+
+  document.addEventListener('click', e => {
+    const t = e.target.closest('[data-rdg],[data-rfill],[data-rinv],[data-rquick],[data-rsel],[data-ruse],[data-bslot],[data-bhero],[data-bskill],[data-bpreset],[data-bclear],[data-bdg],[data-bremove],[data-bmove]');
+    if (!t) return; const d = t.dataset; const dec = (k, n) => { run.inv[k] = Math.max(0, (run.inv[k] || 0) - n); };
+    if (d.rdg != null) { run.dg = d.rdg; run.sel = null; saveRun(); history.replaceState(null, '', '#/run/' + d.rdg); }
+    else if (d.rfill != null) { const dg = DG[run.dg]; run.inv = {}; if (d.rfill !== 'x') Object.keys(dg.provisions).forEach(k => { run.inv[k] = dg.provisions[k][+d.rfill]; }); saveRun(); }
+    else if (d.rinv != null) { run.inv[d.rinv] = Math.max(0, (run.inv[d.rinv] || 0) + (+d.d)); saveRun(); }
+    else if (d.rquick != null) { if (d.rquick === 'hunger') dec('Food', 4); else if (d.rquick === 'torch') dec('Torch', 1); else dec('Shovel', 1); saveRun(); }
+    else if (d.rsel != null) { run.sel = d.rsel; saveRun(); }
+    else if (d.ruse != null) { dec(d.ruse, 1); saveRun(); }
+    else if (d.bremove != null) { e.stopPropagation(); setSlot(+d.bremove, null); bld.active = +d.bremove; saveBld(); }
+    else if (d.bmove != null) { const [i, dir] = d.bmove.split(':').map(Number); const j = i + dir; if (j < 0 || j > 3) return; const a = bld.slots[i], b = bld.slots[j]; setSlot(j, a && a.hero); setSlot(i, b && b.hero); bld.active = j; saveBld(); }
+    else if (d.bskill != null) { const [i, ki] = d.bskill.split(':').map(Number); const s = bld.slots[i]; if (!s || s.hero === 'Abomination') return; const at = s.skills.indexOf(ki); if (at >= 0) s.skills.splice(at, 1); else { if (!usableAt(HERO_DATA[s.hero].skills[ki], 4 - i)) return; if (s.skills.length >= 4) s.skills.shift(); s.skills.push(ki); } bld.active = i; saveBld(); }
+    else if (d.bslot != null) { if (e.target.closest('a')) return; bld.active = +d.bslot; saveBld(); }
+    else if (d.bhero != null) { setSlot(bld.active, d.bhero); const next = bld.slots.findIndex(s => !s); if (next >= 0) bld.active = next; saveBld(); }
+    else if (d.bpreset != null) { const p = PARTIES.find(x => x.id === d.bpreset); p.slots.forEach((s, i) => { const all = HERO_DATA[s.hero].skills; bld.slots[i] = { hero: s.hero, skills: s.hero === 'Abomination' ? all.map((_, k) => k) : s.skills.map(n => all.findIndex(k => k.en === n)).filter(k => k >= 0) }; }); p.tags.some(tg => DG[tg] && (bld.dg = tg)); saveBld(); }
+    else if (d.bclear != null) { bld = { slots: [null, null, null, null], active: 0, dg: bld.dg }; saveBld(); }
+    else if (d.bdg != null) { bld.dg = d.bdg; saveBld(); }
+    render(true);
+  });
+
   // ================= 라우터 =================
   function parseHash() {
     const h = location.hash.replace(/^#\/?/, ''); const [path, qs] = h.split('?');
@@ -371,7 +529,7 @@
     const t = e.target.closest('[data-len],[data-cdg],[data-ptag],[data-ttab],[data-ekind],[data-mode],[data-gcat],#wkreset,#glreset,#glexport,#glimport');
     if (!t) return;
     const d = t.dataset; const r = parseHash();
-    if (d.len != null) { location.replace('#/plan/' + (r.args[0] || 'ruins') + '/' + d.len); }
+    if (d.len != null) { history.replaceState(null, '', '#/plan/' + (r.args[0] || 'ruins') + '/' + d.len); render(true); }
     else if (d.cdg != null) { location.hash = '#/curios/' + d.cdg + (r.q.item ? '?item=1' : ''); }
     else if (d.ptag != null) setQuery({ tag: d.ptag === 'all' ? '' : d.ptag, id: '' }, true);
     else if (d.ttab != null) location.hash = '#/town/' + d.ttab;
