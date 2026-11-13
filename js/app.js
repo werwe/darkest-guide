@@ -690,9 +690,9 @@
   // 안내 캐릭터의 던전별 한마디 (공손한 집사 말투로 직접 작성)
   const DG_BUTLER = { ruins: '해골들은 피가 없으니 출혈은 헛수고지요. 중독을 쓰시고 성수와 열쇠를 챙기십시오. 지난번처럼 빈손으로 가시진 않겠지요?', weald: '그곳 것들은 독을 밥처럼 먹으니 출혈로 다스리시지요. 삽과 붕대, 해독제… 잊으시면 영웅들이 대신 값을 치를 겁니다, 히히.', warrens: '돼지 놈들은 피를 잘 흘립니다. 병도 잘 옮기고요. 약초와 붕대를 챙기시지요. 요양원 주인이 주인님을 참 좋아합디다.', cove: '비늘 덮인 것들은 출혈이 잘 안 듣습니다. 중독을 쓰시고 삽과 약초를 넉넉히. 젖은 양말은 덤이옵니다.', courtyard: '흡혈귀들은 출혈에 약합니다만, 저쪽 칼날이 더 깊지요. 붕대를 한가득 챙기십시오. 물리시거든… 가까이 오지는 마시고요, 히히.', farmstead: '끝도 없이 몰려올 터이니 오래 버틸 채비나 하시지요. 횃불은 필요 없습니다. 어차피 볼 것도 없으니까요.', darkest: '그곳이라… 히히히. 마음 달랠 수단을 둘 이상 갖추시지요. 묘지기에게는 제가 미리 일러 두겠습니다.' };
   function rolesOf(screen) {
-    if (screen === 'map') return [['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
-    if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['title', '화면 제목 읽는 곳'], ['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
-    if (screen === 'hero') return [['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)'], ['portrait', '영웅 얼굴 (목록에 쓸 그림)']];
+    if (screen === 'map') return [['party', '일행 4칸 (한 줄 전체)'], ['title', '화면 제목 읽는 곳'], ['quest', '원정 정보 읽는 곳'], ['len', '원정 길이 읽는 곳']].concat(DUNGEONS.map(d => ['tag:' + d.id, d.ko + ' 이름표 자리']));
+    if (screen === 'provision') return PROV9.map(k => ['item:' + k, PROV[k].ko + ' 칸']).concat([['party', '일행 4칸 (한 줄 전체)'], ['title', '화면 제목 읽는 곳'], ['dg', '던전 이름 읽는 곳'], ['len', '원정 길이 읽는 곳']]);
+    if (screen === 'hero') return [['party', '일행 4칸 (한 줄 전체)'], ['hero', '영웅 직업 읽는 곳'], ['skills', '전투 기술 7칸 (한 줄 전체)'], ['portrait', '영웅 얼굴 (목록에 쓸 그림)']];
     return [['curio', '기물 이름 읽는 곳'], ['info', '정보를 띄울 곳']];
   }
   const roleLabel = (screen, role) => (rolesOf(screen).find(r => r[0] === role) || [0, role])[1];
@@ -869,6 +869,12 @@
     I.say = koOf(d.en, d.ko) + '(으)로 가시겠다고요? 히히… 훌륭한 선택이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 데려갈 일행은 아래에 펼쳐 두었습니다. 몇이나 돌아올지 내기라도 하시렵니까?';
     if (boss) I.say = koOf(boss.en, boss.ko) + '을(를) 잡으러 가신다고요? 히히히… 장한 결심이십니다, 주인님. ' + (DG_BUTLER[dg] || '') + ' 그놈 상대하는 요령은 아래에 적어 두었으니, 읽고나 가시지요.';
   }
+  // 찍어 둔 영웅의 캡처를 불러온다 (없으면 추천 정보만)
+  function showHero(h) { const c = HUD.heroCache[h];
+    if (c) { OCR.last = c.cv; HUD.info = c.info; HUD.info.hero = h; } else HUD.info = { screen: 'hero', hero: h, dg: null, len: null, det: { lines: [], words: [] } };
+    hudBuild(); render(true); }
+  // 게임 화면 아래 가운데의 일행 4칸 (영문·한글 UI 공통 위치). 화면별 영역에 'party' 가 있으면 그것을 쓴다
+  const PARTY_ZONE = { x: 0.404, y: 0.822, w: 0.19, h: 0.076 };
   function heroRoster() {   // 이번 원정에서 확인한 영웅: 앞의 4명은 일행으로 점검, 나머지는 옆에 후보로 둔다. 누르면 그 영웅을 찍어 둔 캡처가 나온다
     const hs = session.heroes; if (!hs.length) return '<p class="small dim">영웅 정보 화면을 한 명씩 캡처하면 이번 원정의 일행으로 모아 점검합니다.</p>';
     const party = hs.slice(0, 4), extra = hs.slice(4); const { A, slots } = checkHeroes(party, ctx.dg); const cur = HUD.info && HUD.info.hero;
@@ -945,6 +951,16 @@
       }
       g.bs = g.bs || 1; g.scale.set(g.bs); g.pivot.set(w / 2, h / 2); g.position.set(g.cx, g.cy); g.alpha = still || !intro ? 1 : 0; callL.addChild(g); items.push({ g, d: intro ? i * 0.045 : -1, ph: i * 1.3 });
     });
+    if (I && ['map', 'hero', 'provision'].includes(I.screen) && session.heroes.length && src) {
+      const pz = (zones[I.screen] || []).find(z => z.role === 'party') || PARTY_ZONE; const cw = pz.w / 4;
+      const mk = (h, x, extra) => { const g = new P.Container(); const w = cw * W - 4, hh = pz.h * H; const cur = h === I.hero && I.screen === 'hero'; const r = new P.Graphics();
+        if (extra) { r.lineStyle(1.5, cur ? 0xd6a64a : 0x6d5420, 1).beginFill(0x14100e, 0.96).drawRoundedRect(0, 0, w, hh, 4).endFill(); g.addChild(r); const c = HUD.heroCache[h]; if (c && c.thumb) { const sp = P.Sprite.from(c.thumb); sp.width = w - 4; sp.height = hh - 4; sp.position.set(2, 2); g.addChild(sp); } }
+        else { r.lineStyle(2, cur ? 0xd6a64a : 0x8a6a26, cur ? 1 : 0.75).beginFill(0xffffff, 0.001).drawRoundedRect(0, 0, w, hh, 4).endFill(); g.addChild(r); }
+        const t = txt(heroKo(h), F * 0.78, cur ? 0xd6a64a : 0xe9e1d3, true); const tb = new P.Graphics().beginFill(0x14100e, 0.92).drawRoundedRect(0, 0, t.width + 8, t.height + 2, 3).endFill(); const lab = new P.Container(); t.position.set(4, 1); lab.addChild(tb, t); const ls = Math.min(1, (w + 2) / (t.width + 8)); lab.scale.set(ls); lab.position.set((w - (t.width + 8) * ls) / 2, -(t.height + 2) * ls - 3); g.addChild(lab);
+        g.position.set(x * W + 2, pz.y * H); g.eventMode = 'static'; g.cursor = 'pointer'; g.on('pointertap', () => showHero(h)); callL.addChild(g); };
+      session.heroes.slice(0, 4).forEach((h, i) => mk(h, pz.x + cw * i, false));
+      session.heroes.slice(4).forEach((h, k) => { const n = Math.floor(k / 2); mk(h, k % 2 === 0 ? pz.x + pz.w + 0.004 + cw * n : pz.x - 0.004 - cw * (n + 1), true); });
+    }
     const embers = []; if (!still && src) for (let k = 0; k < 34; k++) { const e = new P.Graphics().beginFill(0xffa040).drawCircle(0, 0, 1 + Math.random() * 1.6).endFill(); e.blendMode = P.BLEND_MODES.ADD; fxL.addChild(e); embers.push({ e, x: Math.random() * W, y: Math.random() * H, v: 8 + Math.random() * 22, sw: Math.random() * 6, life: Math.random() }); }
     HUD.par = HUD.par || { x: 0, y: 0 }; const cur = HUD.cur = HUD.cur || { x: 0, y: 0 }; let t = 0;
     if (still) return;
@@ -1015,10 +1031,7 @@
     else if (d.hlen != null && I) { I.len = +d.hlen; ctx.len = I.len; hudBuild(); }
     else if (d.hhero != null && I) { I.hero = d.hhero; hudBuild(); }
     else if (d.hrm != null) { e.stopPropagation(); session.heroes = session.heroes.filter(x => x !== d.hrm); delete HUD.heroCache[d.hrm]; DB.del('hero:' + d.hrm); saveSession(); if (I && I.hero === d.hrm) { I.hero = null; I.cachedAs = null; I.src = null; } }
-    else if (d.hroster != null) { const c = HUD.heroCache[d.hroster];
-      if (c) { OCR.last = c.cv; HUD.info = c.info; HUD.info.hero = d.hroster; }
-      else HUD.info = { screen: 'hero', hero: d.hroster, dg: null, len: null, det: { lines: [], words: [] } };
-      hudBuild(); }
+    else if (d.hroster != null) { showHero(d.hroster); return; }
     else if (d.hcurio != null && I) { I.curio = d.hcurio; hudBuild(); }
     else if (d.hud === 'rescan') { hudRun(); return; }
     else if (d.hud === 'fs') { if (document.fullscreenElement) document.exitFullscreen(); else if (document.documentElement.requestFullscreen) document.documentElement.requestFullscreen().catch(() => {}); return; }
